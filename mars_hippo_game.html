@@ -269,10 +269,10 @@
         <div id="instructions">
             <strong>🤖 MARS is Autonomous!</strong><br>
             • MARS thinks and acts independently<br>
-            • Watch her action queue on the right<br>
-            • She prioritizes urgent needs (>50%)<br>
-            • You can still guide her with clicks<br>
-            • Right-click rocks to help her hunt<br>
+            • Watch his action queue on the right<br>
+            • He prioritizes urgent needs (>50%)<br>
+            • You can still guide him with clicks<br>
+            • Right-click rocks to help him hunt<br>
             <br><strong>Manual Controls:</strong><br>
             • Left Click: Override and move MARS<br>
             • Right Click: Interact with rocks<br>
@@ -1440,7 +1440,7 @@
                 case 'pee':
                     marsStats.bladder = Math.max(0, marsStats.bladder - 50);
                     marsStats.happiness = Math.min(100, marsStats.happiness + 10);
-                    showMessage("MARS relieved herself! 💛", Math.max(500, 2000 / timeMultiplier));
+                    showMessage("MARS relieved himself! 💛", Math.max(500, 2000 / timeMultiplier));
                     break;
                     
                 case 'eat':
@@ -1690,7 +1690,7 @@
         }
         
         function startGameLoop() {
-            showMessage("MARS is now autonomous! Watch her make her own decisions! 🧠", 5000);
+            showMessage("MARS is now autonomous! Watch him make his own decisions! 🧠", 5000);
             
             // Initialize AI system
             marsAI.actionStartTime = Date.now();
