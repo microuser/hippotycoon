@@ -1,0 +1,1576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MARS - Baby Hippo Life Simulation</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            font-family: 'Comic Sans MS', cursive;
+            background: linear-gradient(135deg, #87CEEB, #98FB98);
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+        }
+        
+        #statsPanel {
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            min-width: 200px;
+        }
+        
+        .stat-bar {
+            margin: 5px 0;
+            height: 20px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .stat-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        
+        .hunger { background: linear-gradient(90deg, #ff6b6b, #ff3838); }
+        .thirst { background: linear-gradient(90deg, #4ecdc4, #26a69a); }
+        .bladder { background: linear-gradient(90deg, #ffe66d, #ffcc02); }
+        .bowel { background: linear-gradient(90deg, #8b4513, #5d2f0a); }
+        .happiness { background: linear-gradient(90deg, #ff9ff3, #ff6ec7); }
+        
+        .stat-label {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        #controls {
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 10px;
+        }
+        
+        button {
+            background: #4CAF50;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            margin: 2px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        
+        button:hover { background: #45a049; }
+        button:active { background: #3d8b40; }
+        
+        #timeSpeed {
+            background: #2196F3;
+        }
+        #timeSpeed:hover { background: #1976D2; }
+        
+        #story {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 600px;
+            border: 3px solid #FFD700;
+        }
+        
+        #curtains {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 300;
+            pointer-events: none;
+        }
+        
+        .curtain {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 50%;
+            background: linear-gradient(90deg, #8B0000, #DC143C);
+            transition: transform 3s ease-in-out;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+        }
+        
+        .curtain-left {
+            left: 0;
+            transform: translateX(0);
+        }
+        
+        .curtain-right {
+            right: 0;
+            transform: translateX(0);
+        }
+        
+        .curtains-open .curtain-left {
+            transform: translateX(-100%);
+        }
+        
+        .curtains-open .curtain-right {
+            transform: translateX(100%);
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            max-width: 250px;
+        }
+
+        #actionQueue {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            min-width: 200px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+        }
+
+        .action-item {
+            margin: 5px 0;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .action-current {
+            background: rgba(255, 215, 0, 0.8);
+            color: black;
+            font-weight: bold;
+            transform: scale(1.05);
+        }
+
+        .action-queued {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .action-urgent {
+            background: rgba(255, 0, 0, 0.6);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+
+        .action-icon {
+            margin-right: 8px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="ui">
+            <div id="statsPanel">
+                <h3>MARS Status</h3>
+                <div>
+                    <div class="stat-bar">
+                        <div class="stat-fill hunger" id="hungerBar"></div>
+                        <div class="stat-label">Hunger</div>
+                    </div>
+                    <div class="stat-bar">
+                        <div class="stat-fill thirst" id="thirstBar"></div>
+                        <div class="stat-label">Thirst</div>
+                    </div>
+                    <div class="stat-bar">
+                        <div class="stat-fill bladder" id="bladderBar"></div>
+                        <div class="stat-label">Bladder</div>
+                    </div>
+                    <div class="stat-bar">
+                        <div class="stat-fill bowel" id="bowelBar"></div>
+                        <div class="stat-label">Bowel</div>
+                    </div>
+                    <div class="stat-bar">
+                        <div class="stat-fill happiness" id="happinessBar"></div>
+                        <div class="stat-label">Happiness</div>
+                    </div>
+                </div>
+                <div>Age: <span id="ageDisplay">0 days</span></div>
+                <div>Size: <span id="sizeDisplay">Baby</span></div>
+            </div>
+            
+            <div id="controls">
+                <button id="timeSpeed">Time: 1x</button>
+                <button onclick="saveGame()">Save Game</button>
+                <button onclick="loadGame()">Load Game</button>
+            </div>
+        </div>
+        
+        <div id="actionQueue">
+            <h4>🧠 MARS's Mind</h4>
+            <div id="actionList">
+                <div class="action-item action-current">
+                    <span class="action-icon">🎯</span>
+                    <span>Thinking...</span>
+                </div>
+            </div>
+            <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
+                <div>🤖 Autonomous Mode: ON</div>
+                <div id="aiStatus">Evaluating needs...</div>
+            </div>
+        </div>
+        
+        <div id="instructions">
+            <strong>🤖 MARS is Autonomous!</strong><br>
+            • MARS thinks and acts independently<br>
+            • Watch her action queue on the right<br>
+            • She prioritizes urgent needs (>50%)<br>
+            • You can still guide her with clicks<br>
+            • Right-click rocks to help her hunt<br>
+            <br><strong>Manual Controls:</strong><br>
+            • Left Click: Override and move MARS<br>
+            • Right Click: Interact with rocks<br>
+        </div>
+        
+        <div id="curtains">
+            <div class="curtain curtain-left"></div>
+            <div class="curtain curtain-right"></div>
+        </div>
+        
+        <div id="story" style="display: none;">
+            <h2>🦛 MARS Baby Hippo Simulator 🦛</h2>
+            <p id="storyText"></p>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Game State
+        let scene, camera, renderer, mars, gameWorld;
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let isGameStarted = false;
+        let storyStep = 0;
+        let timeMultiplier = 1;
+        let lastTime = Date.now();
+        
+        // Game Objects
+        let rocks = [];
+        let beetles = [];
+        let pools = [];
+        let poopSpots = [];
+        let currentTarget = null;
+        let pathfinding = null;
+        
+        // Beetle spawning system
+        let beetleSpawner = {
+            lastSpawn: 0,
+            spawnInterval: 8000, // 8 seconds between spawns
+            maxBeetles: 15, // Maximum beetles in world
+            spawnChance: 0.7 // 70% chance to spawn when interval passed
+        };
+        
+        // MARS AI System
+        let marsAI = {
+            currentAction: 'idle',
+            actionQueue: ['explore', 'rest', 'drink', 'hunt'],
+            queueIndex: 0,
+            actionStartTime: 0,
+            isExecutingUrgentAction: false,
+            lastThoughtTime: 0,
+            thoughtInterval: 3000, // Think every 3 seconds
+            actionHistory: []
+        };
+        
+        // Action definitions
+        const ACTIONS = {
+            idle: { icon: '😴', name: 'Resting', duration: 5000 },
+            explore: { icon: '🚶', name: 'Exploring', duration: 8000 },
+            hunt: { icon: '🪲', name: 'Hunting bugs', duration: 10000 },
+            hunting_beetle: { icon: '🏃‍♂️', name: 'Chasing beetle!', duration: 3000 },
+            drink: { icon: '💧', name: 'Drinking water', duration: 4000 },
+            poop: { icon: '💩', name: 'Relieving bowel', duration: 3000 },
+            pee: { icon: '💛', name: 'Relieving bladder', duration: 2000 },
+            eat: { icon: '🍃', name: 'Eating grass', duration: 6000 }
+        };
+        
+        // MARS Stats
+        let marsStats = {
+            hunger: 0,
+            thirst: 0,
+            bladder: 0,
+            bowel: 0,
+            happiness: 75,
+            age: 0, // in days
+            size: 'baby'
+        };
+        
+        // Eating cooldown to prevent rapid beetle consumption
+        let lastBeetleEaten = 0;
+        const BEETLE_EATING_COOLDOWN = 500; // 0.5 seconds between beetle eating
+        
+        // Story sequence
+        const storySequence = [
+            "On June 26, 2025, at Tanganyika Wildlife Park in Kansas, a miracle happened...",
+            "Baby MARS was born to loving parents Posie and Pluto! 🎉",
+            "As a rare pygmy hippo, MARS represents hope for conservation efforts worldwide.",
+            "But MARS became famous for something adorable... refusing to leave the pool until mom gave her 'the look'! 👀",
+            "Now it's time to help MARS grow up healthy and happy in her habitat!",
+            "Welcome to MARS's world! Let's begin her life simulation adventure! 🌟"
+        ];
+        
+        // Initialize the game
+        function init() {
+            // Setup Three.js scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            
+            // Camera setup (overhead view)
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 25;
+            camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+            camera.position.set(30, 30, 30);
+            camera.lookAt(0, 0, 0);
+            
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('gameContainer').appendChild(renderer.domElement);
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 50, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.camera.near = 0.1;
+            directionalLight.shadow.camera.far = 200;
+            directionalLight.shadow.camera.left = -50;
+            directionalLight.shadow.camera.right = 50;
+            directionalLight.shadow.camera.top = 50;
+            directionalLight.shadow.camera.bottom = -50;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            createWorld();
+            createMars();
+            setupEventListeners();
+            
+            // Start opening sequence immediately
+            setTimeout(startOpeningSequence, 500);
+        }
+        
+        function createWorld() {
+            // Ground (circular farm area)
+            const groundGeometry = new THREE.CircleGeometry(20, 32);
+            const groundMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x228B22,
+                transparent: true,
+                opacity: 0.8
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            ground.userData = { type: 'ground' };
+            scene.add(ground);
+            
+            // Fence around the area
+            createFence();
+            
+            // Water pools
+            createPools();
+            
+            // Rocks scattered around
+            createRocks();
+            
+            // Central log
+            createLog();
+            
+            // Grass patches
+            createGrass();
+        }
+        
+        function createFence() {
+            const fenceGeometry = new THREE.CylinderGeometry(0.1, 0.1, 2);
+            const fenceMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            
+            for (let i = 0; i < 24; i++) {
+                const angle = (i / 24) * Math.PI * 2;
+                const fence = new THREE.Mesh(fenceGeometry, fenceMaterial);
+                fence.position.x = Math.cos(angle) * 19;
+                fence.position.z = Math.sin(angle) * 19;
+                fence.position.y = 1;
+                fence.castShadow = true;
+                scene.add(fence);
+            }
+        }
+        
+        function createPools() {
+            // Main pool
+            const poolGeometry = new THREE.CircleGeometry(4, 16);
+            const waterMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x006994,
+                transparent: true,
+                opacity: 0.7
+            });
+            
+            const pool1 = new THREE.Mesh(poolGeometry, waterMaterial);
+            pool1.position.set(-8, 0.1, -8);
+            pool1.rotation.x = -Math.PI / 2;
+            pool1.userData = { type: 'water' };
+            scene.add(pool1);
+            pools.push(pool1);
+            
+            const pool2 = new THREE.Mesh(poolGeometry, waterMaterial);
+            pool2.position.set(8, 0.1, 8);
+            pool2.rotation.x = -Math.PI / 2;
+            pool2.userData = { type: 'water' };
+            scene.add(pool2);
+            pools.push(pool2);
+            
+            // Animate water
+            animateWater();
+        }
+        
+        function animateWater() {
+            pools.forEach(pool => {
+                // Apply time multiplier to water animation speed
+                pool.material.opacity = 0.6 + Math.sin(Date.now() * 0.002 * timeMultiplier) * 0.1;
+            });
+            requestAnimationFrame(animateWater);
+        }
+        
+        function createRocks() {
+            const rockGeometry = new THREE.BoxGeometry(1, 0.5, 1);
+            const rockMaterial = new THREE.MeshLambertMaterial({ color: 0x696969 });
+            
+            const rockPositions = [
+                [5, 0.25, 3], [-3, 0.25, 7], [2, 0.25, -5],
+                [-7, 0.25, 2], [6, 0.25, -8], [-2, 0.25, -3],
+                [4, 0.25, 9], [-8, 0.25, -1]
+            ];
+            
+            rockPositions.forEach(pos => {
+                const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+                rock.position.set(pos[0], pos[1], pos[2]);
+                rock.castShadow = true;
+                rock.userData = { 
+                    type: 'rock', 
+                    hasBeenTurned: false,
+                    lastRegenTime: Date.now(),
+                    regenInterval: 20000, // 20 seconds to regenerate
+                    isRegenerating: false,
+                    regenBeetles: [] // Beetles swarming around this rock
+                };
+                rocks.push(rock);
+                scene.add(rock);
+            });
+        }
+        
+        function createLog() {
+            const logGeometry = new THREE.CylinderGeometry(0.5, 0.5, 4);
+            const logMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const log = new THREE.Mesh(logGeometry, logMaterial);
+            log.position.set(0, 0.5, 0);
+            log.castShadow = true;
+            log.userData = { type: 'log' };
+            scene.add(log);
+        }
+        
+        function createGrass() {
+            const grassGeometry = new THREE.ConeGeometry(0.1, 0.5, 3);
+            const grassMaterial = new THREE.MeshLambertMaterial({ color: 0x32CD32 });
+            
+            for (let i = 0; i < 50; i++) {
+                const grass = new THREE.Mesh(grassGeometry, grassMaterial);
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * 15;
+                grass.position.x = Math.cos(angle) * radius;
+                grass.position.z = Math.sin(angle) * radius;
+                grass.position.y = 0.25;
+                grass.scale.set(
+                    0.5 + Math.random() * 0.5,
+                    0.5 + Math.random() * 0.5,
+                    0.5 + Math.random() * 0.5
+                );
+                scene.add(grass);
+            }
+        }
+        
+        function createMars() {
+            // MARS as a cube (placeholder)
+            const marsGeometry = new THREE.BoxGeometry(1, 0.8, 1.5);
+            const marsMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4B8B });
+            mars = new THREE.Mesh(marsGeometry, marsMaterial);
+            mars.position.set(0, 0.4, 0);
+            mars.castShadow = true;
+            mars.userData = { 
+                type: 'mars',
+                velocity: new THREE.Vector3(),
+                targetPosition: null,
+                isMoving: false
+            };
+            scene.add(mars);
+        }
+        
+        function setupEventListeners() {
+            // Mouse events
+            renderer.domElement.addEventListener('click', onMouseClick);
+            renderer.domElement.addEventListener('contextmenu', onRightClick);
+            
+            // Time speed control
+            document.getElementById('timeSpeed').addEventListener('click', toggleTimeSpeed);
+            
+            // Window resize
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        function onMouseClick(event) {
+            if (!isGameStarted) return;
+            
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            
+            for (let intersect of intersects) {
+                if (intersect.object.userData.type === 'ground') {
+                    setMarsTarget(intersect.point);
+                    break;
+                }
+            }
+        }
+        
+        function onRightClick(event) {
+            event.preventDefault();
+            if (!isGameStarted) return;
+            
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(rocks, true);
+            
+            if (intersects.length > 0) {
+                const rock = intersects[0].object;
+                if (mars.position.distanceTo(rock.position) < 3) {
+                    interactWithRock(rock);
+                }
+            }
+        }
+        
+        function setMarsTarget(position) {
+            mars.userData.targetPosition = new THREE.Vector3(position.x, 0.4, position.z);
+            mars.userData.isMoving = true;
+            
+            // Create target indicator
+            if (currentTarget) {
+                scene.remove(currentTarget);
+            }
+            
+            const targetGeometry = new THREE.RingGeometry(0.5, 0.7, 8);
+            const targetMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xffff00,
+                transparent: true,
+                opacity: 0.7
+            });
+            currentTarget = new THREE.Mesh(targetGeometry, targetMaterial);
+            currentTarget.position.copy(position);
+            currentTarget.position.y = 0.1;
+            currentTarget.rotation.x = -Math.PI / 2;
+            scene.add(currentTarget);
+        }
+        
+        function interactWithRock(rock) {
+            if (rock.userData.hasBeenTurned) {
+                showMessage("This rock has already been turned over!");
+                return;
+            }
+            
+            rock.userData.hasBeenTurned = true;
+            rock.rotation.z += Math.PI * 0.3; // Tilt the rock
+            
+            // Spawn beetles
+            spawnBeetles(rock.position);
+            showMessage("MARS found beetles! Right-click them to eat!");
+        }
+        
+        function spawnBeetles(position) {
+            const beetleCount = 3 + Math.floor(Math.random() * 3);
+            
+            for (let i = 0; i < beetleCount; i++) {
+                const beetleGeometry = new THREE.SphereGeometry(0.1);
+                const beetleMaterial = new THREE.MeshLambertMaterial({ color: 0x2F4F2F });
+                const beetle = new THREE.Mesh(beetleGeometry, beetleMaterial);
+                
+                const angle = (i / beetleCount) * Math.PI * 2;
+                const radius = 0.5 + Math.random() * 1;
+                beetle.position.set(
+                    position.x + Math.cos(angle) * radius,
+                    0.1,
+                    position.z + Math.sin(angle) * radius
+                );
+                
+                beetle.userData = {
+                    type: 'beetle',
+                    spawnTime: Date.now(),
+                    velocity: new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.1,
+                        0,
+                        (Math.random() - 0.5) * 0.1
+                    )
+                };
+                
+                beetles.push(beetle);
+                scene.add(beetle);
+            }
+        }
+        
+        function updateMars(deltaTime) {
+            if (!mars.userData.isMoving || !mars.userData.targetPosition) return;
+            
+            const target = mars.userData.targetPosition;
+            const direction = target.clone().sub(mars.position).normalize();
+            const distance = mars.position.distanceTo(target);
+            
+            if (distance < 0.5) {
+                mars.userData.isMoving = false;
+                mars.userData.targetPosition = null;
+                if (currentTarget) {
+                    scene.remove(currentTarget);
+                    currentTarget = null;
+                }
+                return;
+            }
+            
+            // Apply time multiplier to movement speed
+            const speed = 3 * deltaTime * timeMultiplier;
+            mars.position.add(direction.multiplyScalar(speed));
+            
+            // Apply time multiplier to jumping animation
+            mars.position.y = 0.4 + Math.sin(Date.now() * 0.01 * timeMultiplier) * 0.1;
+            
+            // Face movement direction
+            mars.lookAt(target.x, mars.position.y, target.z);
+            
+            // Update camera to follow MARS
+            updateCamera();
+        }
+        
+        function updateCamera() {
+            const targetCameraPos = mars.position.clone().add(new THREE.Vector3(30, 30, 30));
+            // Apply time multiplier to camera smoothing
+            const smoothness = 0.1 * timeMultiplier;
+            camera.position.lerp(targetCameraPos, Math.min(smoothness, 0.5)); // Cap max smoothness
+            camera.lookAt(mars.position);
+        }
+        
+        function updateBeetles(deltaTime) {
+            const currentTime = Date.now();
+            
+            // Handle beetle spawning
+            manageBeetleSpawning(currentTime);
+            
+            // Handle rock regeneration
+            manageRockRegeneration(currentTime);
+            
+            beetles.forEach((beetle, index) => {
+                const age = currentTime - beetle.userData.spawnTime;
+                
+                // Apply time multiplier to beetle lifespan
+                let lifespanMs = 15000 / timeMultiplier;
+                
+                // Swarming beetles live longer
+                if (beetle.userData.isSwarmingRock) {
+                    lifespanMs = 30000 / timeMultiplier; // 30 seconds for swarming beetles
+                }
+                
+                if (age > lifespanMs) {
+                    // Remove from rock's swarm if applicable
+                    if (beetle.userData.swarmRock) {
+                        const rock = beetle.userData.swarmRock;
+                        const swarmIndex = rock.userData.regenBeetles.indexOf(beetle);
+                        if (swarmIndex > -1) {
+                            rock.userData.regenBeetles.splice(swarmIndex, 1);
+                        }
+                    }
+                    
+                    scene.remove(beetle);
+                    beetles.splice(index, 1);
+                    return;
+                }
+                
+                // Handle different beetle behaviors
+                if (beetle.userData.isFlying) {
+                    handleFlyingBeetle(beetle);
+                } else if (beetle.userData.isSwarmingRock) {
+                    handleSwarmingBeetle(beetle, currentTime);
+                } else {
+                    handleGroundBeetle(beetle);
+                }
+                
+                // MARS eating logic (only for ground beetles, not swarming or flying ones)
+                if (!beetle.userData.isFlying && !beetle.userData.isSwarmingRock) {
+                    handleBeetleEating(beetle, index, currentTime);
+                }
+            });
+        }
+        
+        function manageRockRegeneration(currentTime) {
+            rocks.forEach(rock => {
+                const timeSinceRegen = currentTime - rock.userData.lastRegenTime;
+                const adjustedInterval = rock.userData.regenInterval / timeMultiplier;
+                
+                // Check if rock should start regenerating
+                if (rock.userData.hasBeenTurned && 
+                    !rock.userData.isRegenerating && 
+                    timeSinceRegen > adjustedInterval) {
+                    
+                    startRockRegeneration(rock);
+                }
+                
+                // Check if regeneration is complete
+                if (rock.userData.isRegenerating && rock.userData.regenBeetles.length >= 5) {
+                    const regenDuration = 5000 / timeMultiplier; // 5 seconds to complete
+                    if (timeSinceRegen > adjustedInterval + regenDuration) {
+                        completeRockRegeneration(rock);
+                    }
+                }
+            });
+        }
+        
+        function startRockRegeneration(rock) {
+            rock.userData.isRegenerating = true;
+            
+            // Spawn 5-8 swarming beetles around the rock
+            const beetleCount = 5 + Math.floor(Math.random() * 4);
+            
+            for (let i = 0; i < beetleCount; i++) {
+                const beetleGeometry = new THREE.SphereGeometry(0.08); // Slightly smaller
+                const beetleMaterial = new THREE.MeshLambertMaterial({ color: 0x4F4F2F }); // Darker color
+                const beetle = new THREE.Mesh(beetleGeometry, beetleMaterial);
+                
+                // Start beetles at random positions around the rock
+                const angle = (i / beetleCount) * Math.PI * 2;
+                const radius = 1 + Math.random() * 0.5;
+                beetle.position.set(
+                    rock.position.x + Math.cos(angle) * radius,
+                    0.3 + Math.random() * 0.4, // Slightly elevated
+                    rock.position.z + Math.sin(angle) * radius
+                );
+                
+                beetle.userData = {
+                    type: 'beetle',
+                    spawnTime: Date.now(),
+                    isSwarmingRock: true,
+                    swarmRock: rock,
+                    swarmAngle: angle,
+                    swarmRadius: radius,
+                    swarmSpeed: 0.02 + Math.random() * 0.01
+                };
+                
+                beetles.push(beetle);
+                scene.add(beetle);
+                rock.userData.regenBeetles.push(beetle);
+            }
+            
+            // Change rock color to indicate regeneration
+            rock.material.color.setHex(0x8B7355); // Brownish color
+            
+            showMessage(`Rock is regenerating beetles! 🪨🪲`, Math.max(500, 2000 / timeMultiplier));
+        }
+        
+        function completeRockRegeneration(rock) {
+            // Reset rock status
+            rock.userData.hasBeenTurned = false;
+            rock.userData.isRegenerating = false;
+            rock.userData.lastRegenTime = Date.now();
+            rock.rotation.z = 0; // Reset tilt
+            
+            // Return to normal color
+            rock.material.color.setHex(0x696969);
+            
+            // Move rock to new random location
+            moveRockToNewLocation(rock);
+            
+            // Convert swarming beetles to normal ground beetles
+            rock.userData.regenBeetles.forEach(beetle => {
+                beetle.userData.isSwarmingRock = false;
+                beetle.userData.swarmRock = null;
+                beetle.userData.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.1,
+                    0,
+                    (Math.random() - 0.5) * 0.1
+                );
+                beetle.position.y = 0.1; // Ground level
+                
+                // Change to normal beetle appearance
+                beetle.geometry.dispose();
+                beetle.geometry = new THREE.SphereGeometry(0.1);
+                beetle.material.color.setHex(0x2F4F2F);
+            });
+            
+            rock.userData.regenBeetles = [];
+            
+            showMessage(`Rock refreshed and moved! Ready for more beetles! 🪨✨`, Math.max(500, 2500 / timeMultiplier));
+        }
+        
+        function moveRockToNewLocation(rock) {
+            // Find a new random location that's not too close to other rocks
+            let newPos;
+            let attempts = 0;
+            
+            do {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 3 + Math.random() * 12; // 3-15 units from center
+                newPos = {
+                    x: Math.cos(angle) * radius,
+                    z: Math.sin(angle) * radius
+                };
+                attempts++;
+            } while (attempts < 20 && isTooCloseToOtherRocks(rock, newPos));
+            
+            rock.position.set(newPos.x, 0.25, newPos.z);
+        }
+        
+        function isTooCloseToOtherRocks(currentRock, newPos) {
+            return rocks.some(otherRock => {
+                if (otherRock === currentRock) return false;
+                const distance = Math.sqrt(
+                    Math.pow(otherRock.position.x - newPos.x, 2) + 
+                    Math.pow(otherRock.position.z - newPos.z, 2)
+                );
+                return distance < 3; // Minimum 3 units apart
+            });
+        }
+        
+        function handleSwarmingBeetle(beetle, currentTime) {
+            const rock = beetle.userData.swarmRock;
+            if (!rock) return;
+            
+            // Update swarm angle for circular motion
+            beetle.userData.swarmAngle += beetle.userData.swarmSpeed * timeMultiplier;
+            
+            // Vary the radius slightly for natural movement
+            const radiusVariation = Math.sin(currentTime * 0.003 + beetle.userData.swarmAngle) * 0.2;
+            const currentRadius = beetle.userData.swarmRadius + radiusVariation;
+            
+            // Circular motion around the rock
+            beetle.position.x = rock.position.x + Math.cos(beetle.userData.swarmAngle) * currentRadius;
+            beetle.position.z = rock.position.z + Math.sin(beetle.userData.swarmAngle) * currentRadius;
+            
+            // Bob up and down slightly
+            beetle.position.y = 0.3 + Math.sin(currentTime * 0.005 + beetle.userData.swarmAngle) * 0.1;
+        }
+        
+        function handleFlyingBeetle(beetle) {
+            // Existing flying logic
+            const direction = beetle.userData.landingTarget.clone().sub(beetle.position).normalize();
+            const flySpeed = 0.05 * timeMultiplier;
+            beetle.position.add(direction.multiplyScalar(flySpeed));
+            
+            if (beetle.position.distanceTo(beetle.userData.landingTarget) < 0.5) {
+                beetle.userData.isFlying = false;
+                beetle.position.y = 0.1;
+                beetle.userData.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.1,
+                    0,
+                    (Math.random() - 0.5) * 0.1
+                );
+            }
+        }
+        
+        function handleGroundBeetle(beetle) {
+            // Existing ground movement logic
+            const scaledVelocity = beetle.userData.velocity.clone().multiplyScalar(timeMultiplier);
+            beetle.position.add(scaledVelocity);
+            
+            if (Math.random() < (0.02 * timeMultiplier)) {
+                beetle.userData.velocity.set(
+                    (Math.random() - 0.5) * 0.1,
+                    0,
+                    (Math.random() - 0.5) * 0.1
+                );
+            }
+        }
+        
+        function handleBeetleEating(beetle, index, currentTime) {
+            const distanceToMars = mars.position.distanceTo(beetle.position);
+            const adjustedCooldown = BEETLE_EATING_COOLDOWN / timeMultiplier;
+            
+            if (distanceToMars < 2.0 && currentTime - lastBeetleEaten > adjustedCooldown) {
+                scene.remove(beetle);
+                beetles.splice(index, 1);
+                feedMars();
+                lastBeetleEaten = currentTime;
+                showMessage("MARS ate a beetle! 🪲", Math.max(500, 1500 / timeMultiplier));
+                
+                if (marsAI.currentAction === 'hunting_beetle') {
+                    marsAI.isExecutingUrgentAction = false;
+                    marsAI.currentAction = 'idle';
+                    updateAIStatus('Beetle caught!');
+                }
+                return true;
+            }
+            return false;
+        }
+        
+        function manageBeetleSpawning(currentTime) {
+            // Adjust spawn interval with time multiplier
+            const adjustedInterval = beetleSpawner.spawnInterval / timeMultiplier;
+            
+            if (currentTime - beetleSpawner.lastSpawn > adjustedInterval) {
+                beetleSpawner.lastSpawn = currentTime;
+                
+                // Only spawn if we have room and random chance succeeds
+                if (beetles.length < beetleSpawner.maxBeetles && Math.random() < beetleSpawner.spawnChance) {
+                    spawnFlyingBeetle();
+                }
+            }
+        }
+        
+        function spawnFlyingBeetle() {
+            const beetleGeometry = new THREE.SphereGeometry(0.1);
+            const beetleMaterial = new THREE.MeshLambertMaterial({ color: 0x2F4F2F });
+            const beetle = new THREE.Mesh(beetleGeometry, beetleMaterial);
+            
+            // Spawn from random edge of habitat at flying height
+            const angle = Math.random() * Math.PI * 2;
+            const spawnDistance = 25; // Outside the habitat
+            
+            beetle.position.set(
+                Math.cos(angle) * spawnDistance,
+                3 + Math.random() * 2, // Flying height (3-5 units high)
+                Math.sin(angle) * spawnDistance
+            );
+            
+            // Random landing target inside habitat
+            const landingAngle = Math.random() * Math.PI * 2;
+            const landingRadius = Math.random() * 15;
+            const landingTarget = new THREE.Vector3(
+                Math.cos(landingAngle) * landingRadius,
+                0.1,
+                Math.sin(landingAngle) * landingRadius
+            );
+            
+            beetle.userData = {
+                type: 'beetle',
+                spawnTime: Date.now(),
+                isFlying: true,
+                landingTarget: landingTarget,
+                velocity: null // Will be set when landed
+            };
+            
+            beetles.push(beetle);
+            scene.add(beetle);
+            
+            // Announce new beetle arrival occasionally
+            if (Math.random() < 0.3) {
+                showMessage("Beetles are flying in! 🪲✈️", Math.max(500, 1000 / timeMultiplier));
+            }
+        }
+        
+        function feedMars() {
+            marsStats.hunger = Math.max(0, marsStats.hunger - 15);
+            marsStats.thirst = Math.max(0, marsStats.thirst - 10);
+            marsStats.happiness = Math.min(100, marsStats.happiness + 20);
+        }
+        
+        function updateBeetles(deltaTime) {
+            beetles.forEach((beetle, index) => {
+                const age = Date.now() - beetle.userData.spawnTime;
+                
+                // Remove beetles after 15 seconds
+                if (age > 15000) {
+                    scene.remove(beetle);
+                    beetles.splice(index, 1);
+                    return;
+                }
+                
+                // Move beetles randomly
+                beetle.position.add(beetle.userData.velocity);
+                
+                // Change direction occasionally
+                if (Math.random() < 0.02) {
+                    beetle.userData.velocity.set(
+                        (Math.random() - 0.5) * 0.1,
+                        0,
+                        (Math.random() - 0.5) * 0.1
+                    );
+                }
+                
+                // Check if MARS catches the beetle
+                if (mars.position.distanceTo(beetle.position) < 1) {
+                    scene.remove(beetle);
+                    beetles.splice(index, 1);
+                    feedMars();
+                    showMessage("MARS ate a beetle! 🪲");
+                }
+            });
+        }
+        
+        function updateMarsAI(deltaTime) {
+            const currentTime = Date.now();
+            
+            // Check for nearby beetles (only ground beetles, not flying or swarming ones)
+            const nearbyGroundBeetles = beetles.filter(beetle => 
+                !beetle.userData.isFlying && 
+                !beetle.userData.isSwarmingRock &&
+                mars.position.distanceTo(beetle.position) < 8
+            );
+            
+            if (nearbyGroundBeetles.length > 0 && marsAI.currentAction !== 'hunting_beetle') {
+                // Override current action to hunt beetles
+                marsAI.currentAction = 'hunting_beetle';
+                marsAI.isExecutingUrgentAction = true;
+                marsAI.actionStartTime = currentTime;
+                updateAIStatus('🪲 Spotted beetles!');
+                
+                // Target the closest beetle
+                const closestBeetle = nearbyGroundBeetles.reduce((closest, beetle) => 
+                    mars.position.distanceTo(beetle.position) < mars.position.distanceTo(closest.position) ? beetle : closest
+                );
+                setMarsTarget(closestBeetle.position);
+                return;
+            }
+            
+            // If currently hunting but no beetles available, look for regenerating rocks
+            if (marsAI.currentAction === 'hunting_beetle' && nearbyGroundBeetles.length === 0) {
+                const regeneratingRocks = rocks.filter(rock => 
+                    rock.userData.isRegenerating && 
+                    mars.position.distanceTo(rock.position) < 12
+                );
+                
+                if (regeneratingRocks.length > 0) {
+                    const closestRock = regeneratingRocks.reduce((closest, rock) => 
+                        mars.position.distanceTo(rock.position) < mars.position.distanceTo(closest.position) ? rock : closest
+                    );
+                    
+                    updateAIStatus('🪨 Waiting for beetles to emerge...');
+                    const waitPos = closestRock.position.clone();
+                    waitPos.x += (Math.random() - 0.5) * 4;
+                    waitPos.z += (Math.random() - 0.5) * 4;
+                    setMarsTarget(waitPos);
+                } else {
+                    // No beetles or regenerating rocks nearby, return to normal behavior
+                    marsAI.isExecutingUrgentAction = false;
+                    marsAI.currentAction = 'idle';
+                    updateAIStatus('No beetles around...');
+                }
+            }
+            
+            // Think more frequently with time multiplier
+            const adjustedThoughtInterval = marsAI.thoughtInterval / timeMultiplier;
+            if (currentTime - marsAI.lastThoughtTime > adjustedThoughtInterval) {
+                marsAI.lastThoughtTime = currentTime;
+                evaluateNeeds();
+            }
+            
+            // Execute current action
+            executeCurrentAction(deltaTime);
+            
+            // Update UI
+            updateActionQueueUI();
+        }
+        
+        function evaluateNeeds() {
+            let urgentActions = [];
+            let normalActions = [...marsAI.actionQueue];
+            
+            // Check for urgent needs (>50% threshold)
+            if (marsStats.hunger > 50) {
+                urgentActions.push({ action: 'hunt', priority: 4, reason: 'Very hungry!' });
+            }
+            if (marsStats.thirst > 50) {
+                urgentActions.push({ action: 'drink', priority: 3, reason: 'Very thirsty!' });
+            }
+            if (marsStats.bladder > 50) {
+                urgentActions.push({ action: 'pee', priority: 2, reason: 'Need to pee!' });
+            }
+            if (marsStats.bowel > 50) {
+                urgentActions.push({ action: 'poop', priority: 1, reason: 'Need to poop!' });
+            }
+            
+            // Sort urgent actions by priority (lower number = higher priority)
+            urgentActions.sort((a, b) => a.priority - b.priority);
+            
+            if (urgentActions.length > 0 && !marsAI.isExecutingUrgentAction) {
+                // Switch to urgent action
+                const urgentAction = urgentActions[0];
+                marsAI.currentAction = urgentAction.action;
+                marsAI.isExecutingUrgentAction = true;
+                marsAI.actionStartTime = Date.now();
+                
+                updateAIStatus(`🚨 ${urgentAction.reason}`);
+                setMarsAutonomousTarget(urgentAction.action);
+            } else if (!marsAI.isExecutingUrgentAction) {
+                // Continue with normal rotation
+                rotateActionQueue();
+            }
+        }
+        
+        function rotateActionQueue() {
+            // Move to next action in queue
+            marsAI.queueIndex = (marsAI.queueIndex + 1) % marsAI.actionQueue.length;
+            marsAI.currentAction = marsAI.actionQueue[marsAI.queueIndex];
+            marsAI.actionStartTime = Date.now();
+            
+            updateAIStatus('Following routine');
+            setMarsAutonomousTarget(marsAI.currentAction);
+        }
+        
+        function executeCurrentAction(deltaTime) {
+            const baseActionDuration = ACTIONS[marsAI.currentAction]?.duration || 5000;
+            // Adjust action duration based on time multiplier
+            const actionDuration = baseActionDuration / timeMultiplier;
+            const elapsed = Date.now() - marsAI.actionStartTime;
+            
+            if (elapsed > actionDuration) {
+                completeAction(marsAI.currentAction);
+                
+                if (marsAI.isExecutingUrgentAction) {
+                    marsAI.isExecutingUrgentAction = false;
+                    updateAIStatus('Need satisfied!');
+                }
+                
+                // Don't immediately start next action, wait for next evaluation
+                marsAI.currentAction = 'idle';
+            }
+        }
+        
+        function setMarsAutonomousTarget(actionType) {
+            let targetPos = null;
+            
+            switch(actionType) {
+                case 'drink':
+                    if (pools.length > 0) {
+                        const pool = pools[Math.floor(Math.random() * pools.length)];
+                        targetPos = pool.position.clone();
+                        targetPos.x += (Math.random() - 0.5) * 3;
+                        targetPos.z += (Math.random() - 0.5) * 3;
+                    }
+                    break;
+                    
+                case 'hunt':
+                    // Go to a rock that hasn't been turned
+                    const availableRocks = rocks.filter(rock => !rock.userData.hasBeenTurned);
+                    if (availableRocks.length > 0) {
+                        const rock = availableRocks[Math.floor(Math.random() * availableRocks.length)];
+                        targetPos = rock.position.clone();
+                        targetPos.x += (Math.random() - 0.5) * 2;
+                        targetPos.z += (Math.random() - 0.5) * 2;
+                    }
+                    break;
+                    
+                case 'poop':
+                case 'pee':
+                    // Go to edge of habitat
+                    const angle = Math.random() * Math.PI * 2;
+                    targetPos = new THREE.Vector3(
+                        Math.cos(angle) * 15,
+                        0.4,
+                        Math.sin(angle) * 15
+                    );
+                    break;
+                    
+                case 'explore':
+                    // Random location in habitat
+                    const exploreAngle = Math.random() * Math.PI * 2;
+                    const exploreRadius = Math.random() * 12;
+                    targetPos = new THREE.Vector3(
+                        Math.cos(exploreAngle) * exploreRadius,
+                        0.4,
+                        Math.sin(exploreAngle) * exploreRadius
+                    );
+                    break;
+                    
+                case 'rest':
+                    // Stay near current position
+                    targetPos = mars.position.clone();
+                    targetPos.x += (Math.random() - 0.5) * 2;
+                    targetPos.z += (Math.random() - 0.5) * 2;
+                    break;
+            }
+            
+            if (targetPos) {
+                setMarsTarget(targetPos);
+            }
+        }
+        
+        function completeAction(actionType) {
+            switch(actionType) {
+                case 'drink':
+                    marsStats.thirst = Math.max(0, marsStats.thirst - 30);
+                    marsStats.happiness = Math.min(100, marsStats.happiness + 10);
+                    showMessage("MARS had a refreshing drink! 💧", Math.max(500, 2000 / timeMultiplier));
+                    break;
+                    
+                case 'hunt':
+                    // Auto-interact with nearby rock with time-adjusted delay
+                    const huntingDelay = Math.max(50, 300 / timeMultiplier);
+                    setTimeout(() => {
+                        const nearbyRock = rocks.find(rock => 
+                            !rock.userData.hasBeenTurned && 
+                            mars.position.distanceTo(rock.position) < 4
+                        );
+                        if (nearbyRock) {
+                            interactWithRock(nearbyRock);
+                        }
+                    }, huntingDelay);
+                    break;
+                    
+                case 'hunting_beetle':
+                    // Beetle hunting completed - either caught beetle or lost it
+                    marsStats.happiness = Math.min(100, marsStats.happiness + 5);
+                    break;
+                    
+                case 'poop':
+                    marsStats.bowel = Math.max(0, marsStats.bowel - 60);
+                    marsStats.happiness = Math.min(100, marsStats.happiness + 15);
+                    createPoopSpot();
+                    showMessage("MARS feels much better! 💩", Math.max(500, 2000 / timeMultiplier));
+                    break;
+                    
+                case 'pee':
+                    marsStats.bladder = Math.max(0, marsStats.bladder - 50);
+                    marsStats.happiness = Math.min(100, marsStats.happiness + 10);
+                    showMessage("MARS relieved herself! 💛", Math.max(500, 2000 / timeMultiplier));
+                    break;
+                    
+                case 'eat':
+                    marsStats.hunger = Math.max(0, marsStats.hunger - 25);
+                    marsStats.happiness = Math.min(100, marsStats.happiness + 5);
+                    showMessage("MARS munched on some grass! 🍃", Math.max(500, 2000 / timeMultiplier));
+                    break;
+                    
+                case 'explore':
+                    marsStats.happiness = Math.min(100, marsStats.happiness + 8);
+                    showMessage("MARS enjoyed exploring! 🚶", Math.max(500, 2000 / timeMultiplier));
+                    break;
+                    
+                case 'rest':
+                    marsStats.happiness = Math.min(100, marsStats.happiness + 5);
+                    break;
+            }
+            
+            // Add to history
+            marsAI.actionHistory.push({
+                action: actionType,
+                timestamp: Date.now(),
+                statsAfter: {...marsStats}
+            });
+            
+            // Keep history limited
+            if (marsAI.actionHistory.length > 10) {
+                marsAI.actionHistory.shift();
+            }
+        }
+        
+        function createPoopSpot() {
+            const poopGeometry = new THREE.SphereGeometry(0.2, 8, 8);
+            const poopMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const poop = new THREE.Mesh(poopGeometry, poopMaterial);
+            
+            poop.position.copy(mars.position);
+            poop.position.y = 0.1;
+            poop.userData = { type: 'poop', created: Date.now() };
+            
+            poopSpots.push(poop);
+            scene.add(poop);
+        }
+        
+        function updateActionQueueUI() {
+            const actionList = document.getElementById('actionList');
+            actionList.innerHTML = '';
+            
+            // Show current action
+            const currentActionData = ACTIONS[marsAI.currentAction];
+            const currentDiv = document.createElement('div');
+            currentDiv.className = `action-item ${marsAI.isExecutingUrgentAction ? 'action-urgent' : 'action-current'}`;
+            currentDiv.innerHTML = `
+                <span class="action-icon">${currentActionData?.icon || '🤔'}</span>
+                <span>${currentActionData?.name || 'Thinking...'}</span>
+            `;
+            actionList.appendChild(currentDiv);
+            
+            // Show next few actions in queue
+            for (let i = 1; i <= 3; i++) {
+                const nextIndex = (marsAI.queueIndex + i) % marsAI.actionQueue.length;
+                const nextAction = marsAI.actionQueue[nextIndex];
+                const nextActionData = ACTIONS[nextAction];
+                
+                const nextDiv = document.createElement('div');
+                nextDiv.className = 'action-item action-queued';
+                nextDiv.innerHTML = `
+                    <span class="action-icon">${nextActionData?.icon || '❓'}</span>
+                    <span>${nextActionData?.name || nextAction}</span>
+                `;
+                actionList.appendChild(nextDiv);
+            }
+        }
+        
+        function updateAIStatus(status) {
+            document.getElementById('aiStatus').textContent = status;
+        }
+        
+        function updateStats(deltaTime) {
+            const drainRate = 0.5 * timeMultiplier * deltaTime;
+            
+            marsStats.hunger = Math.min(100, marsStats.hunger + drainRate * 0.8);
+            marsStats.thirst = Math.min(100, marsStats.thirst + drainRate * 1.2);
+            marsStats.bladder = Math.min(100, marsStats.bladder + drainRate * 0.6);
+            marsStats.bowel = Math.min(100, marsStats.bowel + drainRate * 0.4);
+            
+            // Age progression
+            marsStats.age += deltaTime * timeMultiplier / 86400; // Convert to days
+            
+            // Happiness affected by other stats
+            let happinessMod = 0;
+            if (marsStats.hunger > 70) happinessMod -= 0.5;
+            if (marsStats.thirst > 70) happinessMod -= 0.7;
+            if (marsStats.bladder > 80) happinessMod -= 1.0;
+            if (marsStats.bowel > 80) happinessMod -= 1.0;
+            
+            marsStats.happiness = Math.max(0, Math.min(100, marsStats.happiness + happinessMod * deltaTime));
+            
+            // Growth stages
+            updateGrowth();
+            
+            // UI update
+            updateUI();
+        }
+        
+        function updateGrowth() {
+            let newSize = 'baby';
+            let scale = 1;
+            
+            if (marsStats.age > 365) {
+                newSize = 'juvenile';
+                scale = 1.3;
+            }
+            if (marsStats.age > 730) {
+                newSize = 'adolescent';
+                scale = 1.6;
+            }
+            if (marsStats.age > 1095) {
+                newSize = 'young adult';
+                scale = 2.0;
+            }
+            if (marsStats.age > 1460) {
+                newSize = 'adult';
+                scale = 2.5;
+            }
+            
+            if (newSize !== marsStats.size) {
+                marsStats.size = newSize;
+                mars.scale.set(scale, scale, scale);
+                showMessage(`MARS is growing! Now a ${newSize}! 🎉`);
+            }
+        }
+        
+        function updateUI() {
+            document.getElementById('hungerBar').style.width = marsStats.hunger + '%';
+            document.getElementById('thirstBar').style.width = marsStats.thirst + '%';
+            document.getElementById('bladderBar').style.width = marsStats.bladder + '%';
+            document.getElementById('bowelBar').style.width = marsStats.bowel + '%';
+            document.getElementById('happinessBar').style.width = marsStats.happiness + '%';
+            
+            document.getElementById('ageDisplay').textContent = Math.floor(marsStats.age) + ' days';
+            document.getElementById('sizeDisplay').textContent = marsStats.size;
+        }
+        
+        function toggleTimeSpeed() {
+            const speeds = [1, 5, 10];
+            const currentIndex = speeds.indexOf(timeMultiplier);
+            timeMultiplier = speeds[(currentIndex + 1) % speeds.length];
+            document.getElementById('timeSpeed').textContent = `Time: ${timeMultiplier}x`;
+        }
+        
+        function showMessage(text, duration = 3000) {
+            // Create floating message
+            const message = document.createElement('div');
+            message.textContent = text;
+            message.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8);
+                color: white;
+                padding: 10px 20px;
+                border-radius: 10px;
+                z-index: 150;
+                pointer-events: none;
+                font-size: 18px;
+                border: 2px solid #FFD700;
+            `;
+            
+            document.body.appendChild(message);
+            
+            setTimeout(() => {
+                if (message.parentNode) {
+                    message.parentNode.removeChild(message);
+                }
+            }, duration);
+        }
+        
+        // Opening sequence functions
+        function startOpeningSequence() {
+            // Show brief story, then immediately start opening curtains
+            document.getElementById('story').style.display = 'block';
+            document.getElementById('storyText').textContent = "Welcome to MARS's world! 🦛";
+            
+            // Auto-continue after 2 seconds
+            setTimeout(() => {
+                document.getElementById('story').style.display = 'none';
+                document.getElementById('curtains').classList.add('curtains-open');
+                
+                // Start game after curtains finish opening
+                setTimeout(() => {
+                    document.getElementById('curtains').style.display = 'none';
+                    isGameStarted = true;
+                    startGameLoop();
+                }, 3000);
+            }, 2000);
+        }
+        
+        function continueStory() {
+            // This function is now unused as we auto-start
+            startOpeningSequence();
+        }
+        
+        function startGameLoop() {
+            showMessage("MARS is now autonomous! Watch her make her own decisions! 🧠", 5000);
+            
+            // Initialize AI system
+            marsAI.actionStartTime = Date.now();
+            marsAI.lastThoughtTime = Date.now();
+            updateActionQueueUI();
+            updateAIStatus('Starting autonomous mode...');
+            
+            gameLoop();
+        }
+        
+        function gameLoop() {
+            const currentTime = Date.now();
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            
+            if (isGameStarted) {
+                updateMarsAI(deltaTime);
+                updateMars(deltaTime);
+                updateBeetles(deltaTime);
+                updateStats(deltaTime);
+            }
+            
+            renderer.render(scene, camera);
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function onWindowResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 25;
+            camera.left = -d * aspect;
+            camera.right = d * aspect;
+            camera.top = d;
+            camera.bottom = -d;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function saveGame() {
+            const saveData = {
+                stats: marsStats,
+                position: { x: mars.position.x, y: mars.position.y, z: mars.position.z },
+                timeMultiplier: timeMultiplier,
+                aiState: {
+                    currentAction: marsAI.currentAction,
+                    queueIndex: marsAI.queueIndex,
+                    actionHistory: marsAI.actionHistory
+                },
+                timestamp: Date.now()
+            };
+            
+            localStorage.setItem('marsHippoGame', JSON.stringify(saveData));
+            showMessage("Game saved! 💾");
+        }
+        
+        function loadGame() {
+            const saveData = localStorage.getItem('marsHippoGame');
+            if (!saveData) {
+                showMessage("No save file found!");
+                return;
+            }
+            
+            try {
+                const data = JSON.parse(saveData);
+                marsStats = data.stats;
+                mars.position.set(data.position.x, data.position.y, data.position.z);
+                timeMultiplier = data.timeMultiplier;
+                document.getElementById('timeSpeed').textContent = `Time: ${timeMultiplier}x`;
+                
+                // Restore AI state
+                if (data.aiState) {
+                    marsAI.currentAction = data.aiState.currentAction || 'idle';
+                    marsAI.queueIndex = data.aiState.queueIndex || 0;
+                    marsAI.actionHistory = data.aiState.actionHistory || [];
+                    marsAI.actionStartTime = Date.now(); // Reset action timer
+                }
+                
+                updateGrowth();
+                updateActionQueueUI();
+                showMessage("Game loaded! 📁");
+            } catch (error) {
+                showMessage("Save file corrupted!");
+            }
+        }
+        
+        // Start the game
+        init();
+    </script>
+</body>
+</html>
