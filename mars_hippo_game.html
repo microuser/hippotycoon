@@ -233,9 +233,14 @@
                         <div class="stat-fill happiness" id="happinessBar"></div>
                         <div class="stat-label">Happiness</div>
                     </div>
+                    <div class="stat-bar">
+                        <div class="stat-fill" id="energyBar" style="background: linear-gradient(90deg, #ffd166, #fcbf49);"></div>
+                        <div class="stat-label">Energy</div>
+                    </div>
                 </div>
                 <div>Age: <span id="ageDisplay">0 days</span></div>
                 <div>Size: <span id="sizeDisplay">Baby</span></div>
+                <div>Day/Time: <span id="dayTimeDisplay">Day 1, 08:00</span></div>
             </div>
             
             <div id="controls">
@@ -286,12 +291,18 @@
     <script>
         // Game State
         let scene, camera, renderer, mars, gameWorld;
+        let ambientLight, sunLight;
         let raycaster = new THREE.Raycaster();
         let mouse = new THREE.Vector2();
         let isGameStarted = false;
         let storyStep = 0;
         let timeMultiplier = 1;
         let lastTime = Date.now();
+        // Time of day (0-24 hours). Start morning at 8:00
+        let gameTime = 8;
+        const DAY_LENGTH_SECONDS_1X = 720; // 12 minutes real-time per in-game day at 1x
+        let inDream = false;
+        let sleepStartHour = null; // hour when sleep action started
         
         // Game Objects
         let rocks = [];
@@ -330,7 +341,8 @@
             drink: { icon: '💧', name: 'Drinking water', duration: 4000 },
             poop: { icon: '💩', name: 'Relieving bowel', duration: 3000 },
             pee: { icon: '💛', name: 'Relieving bladder', duration: 2000 },
-            eat: { icon: '🍃', name: 'Eating grass', duration: 6000 }
+            eat: { icon: '🍃', name: 'Eating grass', duration: 6000 },
+            sleep: { icon: '🛌', name: 'Sleeping', duration: 8000 }
         };
         
         // MARS Stats
@@ -341,7 +353,8 @@
             bowel: 0,
             happiness: 75,
             age: 0, // in days
-            size: 'baby'
+            size: 'baby',
+            energy: 100
         };
         
         // Eating cooldown to prevent rapid beetle consumption
@@ -357,6 +370,53 @@
             "Now it's time to help MARS grow up healthy and happy in her habitat!",
             "Welcome to MARS's world! Let's begin her life simulation adventure! 🌟"
         ];
+
+        // Dream sequences for story progression (Phase 2)
+        const DREAM_SEQUENCES = [
+            {
+                ageTriggerDays: 30,
+                dialogue: [
+                    "I was just a tiny hippo who loved the water...",
+                    "Mom gave me THAT look when I wouldn't get out...",
+                    "Suddenly, millions of people knew my name!",
+                    "I became famous for being stubborn... just like a real hippo!"
+                ]
+            },
+            {
+                ageTriggerDays: 180,
+                dialogue: [
+                    "Dad taught me how real hippos live in the wild...",
+                    "Rivers in Liberia where my ancestors swam freely...",
+                    "I'm not just cute - I'm part of something bigger!",
+                    "Every day I grow stronger, wilder, prouder..."
+                ]
+            },
+            {
+                ageTriggerDays: 365,
+                dialogue: [
+                    "Scientists came to study me, to learn about my kind...",
+                    "Only 2,500 of us left in all the world...",
+                    "But I'm helping people care, helping them understand...",
+                    "My story gives hope to hippos everywhere!"
+                ]
+            },
+            {
+                ageTriggerDays: 730,
+                dialogue: [
+                    "Children visit from schools around the world...",
+                    "They learn that every creature matters...",
+                    "My fame helps protect my wild cousins...",
+                    "I may be small, but my impact is mighty!"
+                ]
+            }
+        ];
+
+        // Story manager
+        let storyManager = {
+            currentDay: 1,
+            completedDreams: [], // contains indices of completed dreams
+            lastDreamDay: 0 // last day number a dream was shown
+        };
         
         // Initialize the game
         function init() {
@@ -379,21 +439,21 @@
             document.getElementById('gameContainer').appendChild(renderer.domElement);
             
             // Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
             
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(50, 50, 50);
-            directionalLight.castShadow = true;
-            directionalLight.shadow.camera.near = 0.1;
-            directionalLight.shadow.camera.far = 200;
-            directionalLight.shadow.camera.left = -50;
-            directionalLight.shadow.camera.right = 50;
-            directionalLight.shadow.camera.top = 50;
-            directionalLight.shadow.camera.bottom = -50;
-            directionalLight.shadow.mapSize.width = 2048;
-            directionalLight.shadow.mapSize.height = 2048;
-            scene.add(directionalLight);
+            sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            sunLight.position.set(50, 50, 50);
+            sunLight.castShadow = true;
+            sunLight.shadow.camera.near = 0.1;
+            sunLight.shadow.camera.far = 200;
+            sunLight.shadow.camera.left = -50;
+            sunLight.shadow.camera.right = 50;
+            sunLight.shadow.camera.top = 50;
+            sunLight.shadow.camera.bottom = -50;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
             
             createWorld();
             createMars();
@@ -707,6 +767,66 @@
             const smoothness = 0.1 * timeMultiplier;
             camera.position.lerp(targetCameraPos, Math.min(smoothness, 0.5)); // Cap max smoothness
             camera.lookAt(mars.position);
+        }
+
+        // Update environment lighting and background based on time of day
+        function updateEnvironment() {
+            // Normalize time to 0..24
+            const t = ((gameTime % 24) + 24) % 24;
+
+            // Determine phase weights
+            const isDay = t >= 7 && t < 18;
+            const isNight = t >= 20 || t < 5;
+            const isSunrise = t >= 5 && t < 7;
+            const isSunset = t >= 18 && t < 20;
+
+            // Target values
+            let ambientIntensity = 0.6;
+            let sunIntensity = 0.8;
+            let skyDay = new THREE.Color(0x87CEEB); // sky blue
+            let skyNight = new THREE.Color(0x0b1020); // deep night blue
+
+            // Interpolate for sunrise and sunset
+            if (isSunrise) {
+                const k = (t - 5) / 2; // 0..1
+                ambientIntensity = 0.2 + k * (0.6 - 0.2);
+                sunIntensity = 0.2 + k * (0.8 - 0.2);
+                const c = skyNight.clone().lerp(skyDay, k);
+                scene.background = c;
+            } else if (isSunset) {
+                const k = (t - 18) / 2; // 0..1
+                ambientIntensity = 0.6 + k * (0.2 - 0.6);
+                sunIntensity = 0.8 + k * (0.2 - 0.8);
+                const c = skyDay.clone().lerp(skyNight, k);
+                scene.background = c;
+            } else if (isDay) {
+                ambientIntensity = 0.6;
+                sunIntensity = 0.8;
+                scene.background = skyDay;
+            } else if (isNight) {
+                ambientIntensity = 0.2;
+                sunIntensity = 0.2;
+                scene.background = skyNight;
+            }
+
+            if (ambientLight) ambientLight.intensity = ambientIntensity;
+            if (sunLight) {
+                sunLight.intensity = sunIntensity;
+                // Move sun across the sky: map 6..18 to above horizon arc
+                const dayAngle = ((t - 6) / 12) * Math.PI; // 0..PI
+                const radius = 80;
+                // Clamp for night
+                const angle = Math.max(0, Math.min(Math.PI, dayAngle));
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+                sunLight.position.set(x, y, x * 0.6);
+                sunLight.lookAt(0, 0, 0);
+            }
+        }
+
+        function isNightHour(hour) {
+            const h = ((hour % 24) + 24) % 24;
+            return h >= 20 || h < 5; // 8pm - 5am
         }
         
         function updateBeetles(deltaTime) {
@@ -1134,6 +1254,13 @@
             if (marsStats.bowel > 50) {
                 urgentActions.push({ action: 'poop', priority: 1, reason: 'Need to poop!' });
             }
+            // Low energy -> sleep
+            if (marsStats.energy <= 0) {
+                urgentActions = [{ action: 'sleep', priority: 0, reason: 'Exhausted! Going to sleep...' }];
+            } else if (marsStats.energy < 20 && isNightHour(gameTime)) {
+                // Only encourage sleep at night unless fully exhausted
+                urgentActions.push({ action: 'sleep', priority: 0, reason: 'Very tired! Need sleep.' });
+            }
             
             // Sort urgent actions by priority (lower number = higher priority)
             urgentActions.sort((a, b) => a.priority - b.priority);
@@ -1144,6 +1271,9 @@
                 marsAI.currentAction = urgentAction.action;
                 marsAI.isExecutingUrgentAction = true;
                 marsAI.actionStartTime = Date.now();
+                if (urgentAction.action === 'sleep') {
+                    sleepStartHour = gameTime;
+                }
                 
                 updateAIStatus(`🚨 ${urgentAction.reason}`);
                 setMarsAutonomousTarget(urgentAction.action);
@@ -1295,6 +1425,32 @@
                 case 'rest':
                     marsStats.happiness = Math.min(100, marsStats.happiness + 5);
                     break;
+
+                case 'sleep':
+                    // During sleep, trigger dream if eligible; then restore and advance day/time
+                    const dreamIndex = getNextEligibleDreamIndex();
+                    const finishSleep = () => {
+                        marsStats.energy = 100;
+                        // Advance to next morning 07:00 and increment currentDay
+                        const currentHour2 = ((gameTime % 24) + 24) % 24;
+                        if (currentHour2 < 7) {
+                            gameTime = 7;
+                        } else {
+                            const hoursToMorning = 24 - currentHour2 + 7;
+                            gameTime = (gameTime + hoursToMorning) % 24;
+                        }
+                        storyManager.currentDay += 1;
+                        sleepStartHour = null;
+                        showMessage("A new day dawns. MARS feels rested! ☀️", Math.max(500, 2500 / timeMultiplier));
+                    };
+                    // Only show dream once per night, at night, and only for the first 4 nights
+                    const canDreamTonight = isNightHour(sleepStartHour ?? gameTime) && storyManager.lastDreamDay !== storyManager.currentDay && storyManager.completedDreams.length < DREAM_SEQUENCES.length;
+                    if (dreamIndex !== -1 && canDreamTonight) {
+                        startDreamSequence(dreamIndex, finishSleep);
+                    } else {
+                        finishSleep();
+                    }
+                    break;
             }
             
             // Add to history
@@ -1364,9 +1520,16 @@
             marsStats.thirst = Math.min(100, marsStats.thirst + drainRate * 1.2);
             marsStats.bladder = Math.min(100, marsStats.bladder + drainRate * 0.6);
             marsStats.bowel = Math.min(100, marsStats.bowel + drainRate * 0.4);
+            // Energy drains over time, slower when idle
+            marsStats.energy = Math.max(0, marsStats.energy - drainRate * 0.5);
             
             // Age progression
             marsStats.age += deltaTime * timeMultiplier / 86400; // Convert to days
+
+            // Time of day progression
+            const hoursPerSecondAt1x = 24 / DAY_LENGTH_SECONDS_1X; // hours progressed per real second
+            const deltaHours = hoursPerSecondAt1x * deltaTime * timeMultiplier;
+            gameTime = (gameTime + deltaHours) % 24;
             
             // Happiness affected by other stats
             let happinessMod = 0;
@@ -1418,9 +1581,16 @@
             document.getElementById('bladderBar').style.width = marsStats.bladder + '%';
             document.getElementById('bowelBar').style.width = marsStats.bowel + '%';
             document.getElementById('happinessBar').style.width = marsStats.happiness + '%';
+            const energyEl = document.getElementById('energyBar');
+            if (energyEl) energyEl.style.width = marsStats.energy + '%';
             
             document.getElementById('ageDisplay').textContent = Math.floor(marsStats.age) + ' days';
             document.getElementById('sizeDisplay').textContent = marsStats.size;
+            // Day/Time display
+            const hour = Math.floor(((gameTime % 24) + 24) % 24);
+            const minutes = Math.floor(((gameTime - Math.floor(gameTime)) * 60));
+            const pad = (n) => n.toString().padStart(2, '0');
+            document.getElementById('dayTimeDisplay').textContent = `Day ${storyManager.currentDay}, ${pad(hour)}:${pad(minutes)}`;
         }
         
         function toggleTimeSpeed() {
@@ -1500,11 +1670,12 @@
             const deltaTime = (currentTime - lastTime) / 1000;
             lastTime = currentTime;
             
-            if (isGameStarted) {
+            if (isGameStarted && !inDream) {
                 updateMarsAI(deltaTime);
                 updateMars(deltaTime);
                 updateBeetles(deltaTime);
                 updateStats(deltaTime);
+                updateEnvironment();
             }
             
             renderer.render(scene, camera);
@@ -1527,6 +1698,8 @@
                 stats: marsStats,
                 position: { x: mars.position.x, y: mars.position.y, z: mars.position.z },
                 timeMultiplier: timeMultiplier,
+                gameTime: gameTime,
+                storyManager: storyManager,
                 aiState: {
                     currentAction: marsAI.currentAction,
                     queueIndex: marsAI.queueIndex,
@@ -1552,6 +1725,8 @@
                 mars.position.set(data.position.x, data.position.y, data.position.z);
                 timeMultiplier = data.timeMultiplier;
                 document.getElementById('timeSpeed').textContent = `Time: ${timeMultiplier}x`;
+                if (typeof data.gameTime === 'number') gameTime = data.gameTime;
+                if (data.storyManager) storyManager = data.storyManager;
                 
                 // Restore AI state
                 if (data.aiState) {
@@ -1567,6 +1742,41 @@
             } catch (error) {
                 showMessage("Save file corrupted!");
             }
+        }
+
+        // Phase 2 helpers: dream triggering and display
+        function getNextEligibleDreamIndex() {
+            // Limit to one new dream per night and only 4 total. Use next index in sequence.
+            const nextIndex = storyManager.completedDreams.length;
+            if (nextIndex >= DREAM_SEQUENCES.length) return -1;
+            // Optionally keep age gates; if age not reached, skip dream
+            if (marsStats.age < DREAM_SEQUENCES[nextIndex].ageTriggerDays) return -1;
+            return nextIndex;
+        }
+
+        function startDreamSequence(index, onComplete) {
+            inDream = true;
+            const dream = DREAM_SEQUENCES[index];
+            const storyEl = document.getElementById('story');
+            const storyText = document.getElementById('storyText');
+            storyEl.style.display = 'block';
+            storyEl.style.zIndex = 400;
+            let idx = 0;
+
+            const nextBubble = () => {
+                if (idx >= dream.dialogue.length) {
+                    // Finish dream
+                    storyEl.style.display = 'none';
+                    inDream = false;
+                    storyManager.completedDreams.push(index);
+                    storyManager.lastDreamDay = storyManager.currentDay;
+                    if (typeof onComplete === 'function') onComplete();
+                    return;
+                }
+                storyText.textContent = dream.dialogue[idx++];
+                setTimeout(nextBubble, Math.max(1200, 2200 / timeMultiplier));
+            };
+            nextBubble();
         }
         
         // Start the game
