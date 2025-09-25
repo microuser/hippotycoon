@@ -245,6 +245,8 @@
             
             <div id="controls">
                 <button id="timeSpeed">Time: 1x</button>
+                <button id="sleepBtn">Sleep</button>
+                <button id="storyLogBtn">Story Log</button>
                 <button onclick="saveGame()">Save Game</button>
                 <button onclick="loadGame()">Load Game</button>
             </div>
@@ -285,6 +287,15 @@
             <h2>🦛 MARS Baby Hippo Simulator 🦛</h2>
             <p id="storyText"></p>
         </div>
+
+        <!-- Story Log Modal -->
+        <div id="storyLogModal" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index: 350; background: rgba(0,0,0,0.9); color: white; padding: 20px; border-radius: 12px; max-width: 600px; max-height: 60vh; overflow-y: auto; border: 3px solid #FFD700;">
+            <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 style="margin:0;">Story Log</h3>
+                <button id="closeStoryLog" style="background:#444;">Close</button>
+            </div>
+            <ul id="storyLogList" style="list-style: none; padding-left: 0; margin: 0;"></ul>
+        </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -303,6 +314,7 @@
         const DAY_LENGTH_SECONDS_1X = 720; // 12 minutes real-time per in-game day at 1x
         let inDream = false;
         let sleepStartHour = null; // hour when sleep action started
+        let storyLog = [];
         
         // Game Objects
         let rocks = [];
@@ -364,7 +376,7 @@
         // Story sequence
         const storySequence = [
             "On June 26, 2025, at Tanganyika Wildlife Park in Kansas, a miracle happened...",
-            "Baby MARS was born to loving parents Posie and Pluto! 🎉",
+            "Baby MARS was born to hippopotamus pair Posie and Pluto! 🎉",
             "As a rare pygmy hippo, MARS represents hope for conservation efforts worldwide.",
             "But MARS became famous for something adorable... refusing to leave the pool until mom gave her 'the look'! 👀",
             "Now it's time to help MARS grow up healthy and happy in her habitat!",
@@ -374,7 +386,7 @@
         // Dream sequences for story progression (Phase 2)
         const DREAM_SEQUENCES = [
             {
-                ageTriggerDays: 30,
+                ageTriggerDays: 1,
                 dialogue: [
                     "I was just a tiny hippo who loved the water...",
                     "Mom gave me THAT look when I wouldn't get out...",
@@ -383,7 +395,7 @@
                 ]
             },
             {
-                ageTriggerDays: 180,
+                ageTriggerDays: 2,
                 dialogue: [
                     "Dad taught me how real hippos live in the wild...",
                     "Rivers in Liberia where my ancestors swam freely...",
@@ -392,7 +404,7 @@
                 ]
             },
             {
-                ageTriggerDays: 365,
+                ageTriggerDays: 3,
                 dialogue: [
                     "Scientists came to study me, to learn about my kind...",
                     "Only 2,500 of us left in all the world...",
@@ -401,7 +413,7 @@
                 ]
             },
             {
-                ageTriggerDays: 730,
+                ageTriggerDays: 4,
                 dialogue: [
                     "Children visit from schools around the world...",
                     "They learn that every creature matters...",
@@ -623,9 +635,29 @@
             
             // Time speed control
             document.getElementById('timeSpeed').addEventListener('click', toggleTimeSpeed);
+            // Sleep and Story Log controls
+            document.getElementById('sleepBtn').addEventListener('click', onSleepClick);
+            document.getElementById('storyLogBtn').addEventListener('click', toggleStoryLog);
+            document.getElementById('closeStoryLog').addEventListener('click', toggleStoryLog);
             
             // Window resize
             window.addEventListener('resize', onWindowResize);
+        }
+
+        function onSleepClick() {
+            if (inDream) return;
+            const allowSleep = marsStats.energy <= 0 || isNightHour(gameTime);
+            if (!allowSleep) {
+                showMessage("It's not night yet. MARS isn't sleepy.");
+                return;
+            }
+            // Initiate sleep action immediately
+            marsAI.currentAction = 'sleep';
+            marsAI.isExecutingUrgentAction = true;
+            marsAI.actionStartTime = Date.now();
+            sleepStartHour = gameTime;
+            updateAIStatus('Heading to sleep...');
+            setMarsAutonomousTarget('sleep');
         }
         
         function onMouseClick(event) {
@@ -1591,6 +1623,10 @@
             const minutes = Math.floor(((gameTime - Math.floor(gameTime)) * 60));
             const pad = (n) => n.toString().padStart(2, '0');
             document.getElementById('dayTimeDisplay').textContent = `Day ${storyManager.currentDay}, ${pad(hour)}:${pad(minutes)}`;
+            // Sleep button state
+            const sleepBtn = document.getElementById('sleepBtn');
+            const canSleep = marsStats.energy <= 0 || isNightHour(gameTime) || marsStats.energy < 20;
+            sleepBtn.disabled = inDream || !canSleep;
         }
         
         function toggleTimeSpeed() {
@@ -1700,6 +1736,7 @@
                 timeMultiplier: timeMultiplier,
                 gameTime: gameTime,
                 storyManager: storyManager,
+                storyLog: storyLog,
                 aiState: {
                     currentAction: marsAI.currentAction,
                     queueIndex: marsAI.queueIndex,
@@ -1727,6 +1764,10 @@
                 document.getElementById('timeSpeed').textContent = `Time: ${timeMultiplier}x`;
                 if (typeof data.gameTime === 'number') gameTime = data.gameTime;
                 if (data.storyManager) storyManager = data.storyManager;
+                if (Array.isArray(data.storyLog)) {
+                    storyLog = data.storyLog;
+                    renderStoryLog();
+                }
                 
                 // Restore AI state
                 if (data.aiState) {
@@ -1770,13 +1811,44 @@
                     inDream = false;
                     storyManager.completedDreams.push(index);
                     storyManager.lastDreamDay = storyManager.currentDay;
+                    addToStoryLog(`Dream ${index + 1} completed on Day ${storyManager.currentDay}.`);
                     if (typeof onComplete === 'function') onComplete();
                     return;
                 }
-                storyText.textContent = dream.dialogue[idx++];
+                const line = dream.dialogue[idx++];
+                storyText.textContent = line;
+                addToStoryLog(`Dream ${index + 1}: ${line}`);
                 setTimeout(nextBubble, Math.max(1200, 2200 / timeMultiplier));
             };
             nextBubble();
+        }
+
+        function toggleStoryLog() {
+            const modal = document.getElementById('storyLogModal');
+            const isOpen = modal.style.display !== 'none';
+            modal.style.display = isOpen ? 'none' : 'block';
+            if (!isOpen) {
+                renderStoryLog();
+            }
+        }
+
+        function addToStoryLog(entry) {
+            const timestamp = `Day ${storyManager.currentDay}, ${String(Math.floor(gameTime)).padStart(2,'0')}:${String(Math.floor((gameTime - Math.floor(gameTime))*60)).padStart(2,'0')}`;
+            storyLog.push(`[${timestamp}] ${entry}`);
+            // Keep log reasonable
+            if (storyLog.length > 200) storyLog.shift();
+        }
+
+        function renderStoryLog() {
+            const list = document.getElementById('storyLogList');
+            if (!list) return;
+            list.innerHTML = '';
+            storyLog.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = item;
+                li.style.margin = '4px 0';
+                list.appendChild(li);
+            });
         }
         
         // Start the game

@@ -62,6 +62,17 @@ This document outlines the development tasks for implementing a day/night cycle 
     - Add a "Sleep" button to the controls panel in the HTML.
     - When it's evening/night in the game and MARS's energy is low, enable the button.
     - Clicking the button will command MARS to find a spot to sleep and trigger the sleep cycle.
+    
+- [x] **Task 3.1.3: Add a Sleep Button**
+    - Implemented `#sleepBtn` in controls; wired to `onSleepClick()` which initiates sleep at night or when exhausted.
+    - Button enable/disable reflects night/energy and `inDream` state via `updateUI()`.
+
+### Additional Feature: Story Log Popup
+
+- [x] **Task 3.2.1: Story Log UI & Persistence**
+    - Added `#storyLogModal` with toggle button and close control.
+    - Implemented `storyLog` array, `addToStoryLog()`, and `renderStoryLog()`; persisted via save/load.
+    - Dream lines and completion events are recorded during `startDreamSequence()`.
 
 ## Phase 4: Integration and Refinement
 
