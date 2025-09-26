@@ -293,6 +293,7 @@
                 <div>Age: <span id="ageDisplay">0 days</span></div>
                 <div>Size: <span id="sizeDisplay">Baby</span></div>
                 <div>Day/Time: <span id="dayTimeDisplay">Day 1, 08:00</span></div>
+                <div>Score: <span id="scoreDisplay">0</span></div>
             </div>
             
             <div id="controls">
@@ -400,15 +401,33 @@
         let inDream = false;
         let sleepStartHour = null; // hour when sleep action started
         let storyLog = [];
+        let isBackflipping = false;
+        let backflipState = null;
+        // Habitat boundaries (fence posts at ~19, ground radius 20)
+        const HABITAT_RADIUS = 19;
+        const HABITAT_INNER_RADIUS = 18.5; // soft margin to avoid clipping fence
+        // Track a progressive poop pile
+        let lastPoopPile = { center: null, meshes: [] };
+        // Periodic beetle swarm behavior
+        let lastPoopSwarmTime = 0;
+        const POOP_SWARM_INTERVAL_MS = 10000; // about once every 10 seconds
         
         // Game Objects
         let rocks = [];
         let beetles = [];
         let pools = [];
         let poopSpots = [];
+        let frogs = [];
         let currentTarget = null;
         let pathfinding = null;
         let splashParticles = null;
+        // Frog spawning system
+        let frogSpawner = {
+            lastSpawn: 0,
+            spawnInterval: 9000, // ~9 seconds between spawn attempts
+            maxFrogs: 4,
+            spawnChance: 0.6
+        };
         
         // Beetle spawning system
         let beetleSpawner = {
@@ -421,7 +440,7 @@
         // MARS AI System
         let marsAI = {
             currentAction: 'idle',
-            actionQueue: ['explore', 'rest', 'drink', 'hunt'],
+            actionQueue: ['explore', 'rest', 'drink', 'hunt', 'splash'],
             queueIndex: 0,
             actionStartTime: 0,
             isExecutingUrgentAction: false,
@@ -453,9 +472,9 @@
             happiness: 75,
             age: 0, // in days
             size: 'baby',
-            energy: 100
+            energy: 100,
+            score: 0
         };
-        
         // Eating cooldown to prevent rapid beetle consumption
         let lastBeetleEaten = 0;
         const BEETLE_EATING_COOLDOWN = 500; // 0.5 seconds between beetle eating
@@ -527,6 +546,8 @@
             const aspect = window.innerWidth / window.innerHeight;
             const d = 25;
             camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+            camera.zoom = 2; // 2x zoom
+            camera.updateProjectionMatrix();
             camera.position.set(30, 30, 30);
             camera.lookAt(0, 0, 0);
             
@@ -617,6 +638,146 @@
                 fence.castShadow = true;
                 scene.add(fence);
             }
+        }
+
+        // Frogs: spawn from water, hop around within fence until eaten, max 4 on screen
+        function manageFrogSpawning(currentTime) {
+            const adjustedInterval = frogSpawner.spawnInterval / timeMultiplier;
+            if (currentTime - frogSpawner.lastSpawn > adjustedInterval) {
+                frogSpawner.lastSpawn = currentTime;
+                if (frogs.length < frogSpawner.maxFrogs && Math.random() < frogSpawner.spawnChance) {
+                    spawnFrog();
+                } else if (frogs.length >= frogSpawner.maxFrogs) {
+                    // At cap: choose a frog far from MARS to go hide under a rock/poop
+                    let farFrog = null;
+                    let bestD2 = -1;
+                    for (const f of frogs) {
+                        const dx = f.position.x - mars.position.x;
+                        const dz = f.position.z - mars.position.z;
+                        const d2 = dx*dx + dz*dz;
+                        if (d2 > bestD2) { bestD2 = d2; farFrog = f; }
+                    }
+                    if (farFrog) {
+                        const ud = farFrog.userData;
+                        if (!ud.hideTarget) ud.hideTarget = pickHideTargetNear(farFrog.position);
+                        if (ud.hideTarget) {
+                            ud.state = 'hide';
+                            // give it a push toward hiding
+                            const dir = ud.hideTarget.clone().sub(farFrog.position).normalize();
+                            ud.velocity.add(dir.multiplyScalar(0.3));
+                        }
+                    }
+                }
+            }
+        }
+
+        function spawnFrog() {
+            if (pools.length === 0) return;
+            const pool = pools[Math.floor(Math.random() * pools.length)];
+            const geom = new THREE.SphereGeometry(0.35, 12, 12);
+            const mat = new THREE.MeshLambertMaterial({ color: 0x2ecc71 });
+            const frog = new THREE.Mesh(geom, mat);
+            // Spawn near pool edge
+            const ang = Math.random() * Math.PI * 2;
+            const r = 3.8; // near pool radius 4
+            frog.position.set(pool.position.x + Math.cos(ang) * r, 0.1, pool.position.z + Math.sin(ang) * r);
+            frog.castShadow = true;
+            frog.userData = {
+                type: 'frog',
+                spawnTime: Date.now(),
+                vy: 0,
+                velocity: new THREE.Vector3((Math.random()-0.5)*0.15, 0, (Math.random()-0.5)*0.15),
+                hopTimer: 0,
+                hopInterval: 0.6 + Math.random() * 0.8,
+                hideTarget: pickHideTargetNear(pool.position),
+                state: 'explore' // or 'hide'
+            };
+            frogs.push(frog);
+            scene.add(frog);
+        }
+
+        function updateFrogs(deltaTime) {
+            const currentTime = Date.now();
+            manageFrogSpawning(currentTime);
+            
+            const gravity = 9.8;
+            frogs.forEach((frog, index) => {
+                const ud = frog.userData;
+                // Choose behavior: if hideTarget exists (spawned from water), occasionally head to hide
+                if (ud.state === 'explore' && ud.hideTarget && Math.random() < 0.005 * timeMultiplier) {
+                    ud.state = 'hide';
+                }
+
+                if (ud.state === 'hide' && ud.hideTarget) {
+                    const dir = ud.hideTarget.clone().sub(frog.position);
+                    dir.y = 0;
+                    if (dir.length() > 0.1) {
+                        dir.normalize();
+                        ud.velocity.lerp(dir.multiplyScalar(0.6), 0.2 * timeMultiplier);
+                    } else {
+                        // Arrived, switch back to explore after a pause
+                        if (!ud.hideUntil) ud.hideUntil = currentTime + 1500;
+                        if (currentTime > ud.hideUntil) {
+                            ud.hideUntil = null;
+                            ud.state = 'explore';
+                        }
+                    }
+                } else {
+                    // Randomly adjust walking direction
+                    if (Math.random() < 0.03 * timeMultiplier) {
+                        ud.velocity.add(new THREE.Vector3((Math.random()-0.5)*0.1, 0, (Math.random()-0.5)*0.1));
+                    }
+                }
+
+                // Hopping: periodic upward impulse
+                ud.hopTimer += deltaTime * timeMultiplier;
+                if (ud.hopTimer > ud.hopInterval) {
+                    ud.hopTimer = 0;
+                    ud.hopInterval = 0.6 + Math.random() * 0.8;
+                    ud.vy = 3.2 + Math.random() * 0.8;
+                }
+
+                // Apply movement and gravity
+                ud.vy -= gravity * deltaTime;
+                frog.position.y = Math.max(0.1, frog.position.y + ud.vy * deltaTime);
+                if (frog.position.y <= 0.11 && ud.vy < 0) {
+                    ud.vy = 0; // landed
+                }
+                // Horizontal move
+                frog.position.add(ud.velocity.clone().multiplyScalar(0.6 * deltaTime));
+
+                // Keep inside habitat; apply inward pull if beyond outer radius
+                const dx = frog.position.x, dz = frog.position.z;
+                const r = Math.sqrt(dx*dx + dz*dz);
+                if (r > HABITAT_RADIUS) {
+                    const inward = new THREE.Vector3(-dx, 0, -dz).normalize();
+                    ud.velocity.add(inward.multiplyScalar(0.25));
+                }
+                if (r > HABITAT_INNER_RADIUS) {
+                    const ang = Math.atan2(dz, dx);
+                    frog.position.x = Math.cos(ang) * HABITAT_INNER_RADIUS;
+                    frog.position.z = Math.sin(ang) * HABITAT_INNER_RADIUS;
+                    const inward = new THREE.Vector3(-Math.cos(ang), 0, -Math.sin(ang));
+                    ud.velocity.add(inward.multiplyScalar(0.2));
+                }
+
+                // MARS eats frog if close enough
+                const dToMars = mars.position.distanceTo(frog.position);
+                if (dToMars < 1.2) {
+                    scene.remove(frog);
+                    frogs.splice(index, 1);
+                    feedMarsFrog();
+                    showMessage("MARS ate a tasty frog! 🐸", Math.max(500, 1500 / timeMultiplier));
+                    return;
+                }
+
+                // Face movement direction lightly
+                const dir2d = ud.velocity.clone();
+                if (dir2d.lengthSq() > 1e-4) {
+                    const face = frog.position.clone().add(dir2d);
+                    frog.lookAt(face.x, frog.position.y, face.z);
+                }
+            });
         }
         
         function createPools() {
@@ -787,6 +948,136 @@
             splashParticles.visible = true;
         }
 
+        function startBackflip() {
+            if (isBackflipping) return;
+
+            isBackflipping = true;
+            marsAI.isExecutingUrgentAction = true; // pause AI actions during trick
+
+            // Initial jump splash effect
+            triggerSplashEffect();
+
+            // Configure flip state
+            backflipState = {
+                t: 0,                   // elapsed seconds
+                duration: 1.5,          // total backflip duration
+                startPos: mars.position.clone(),
+                radius: 1.6,            // horizontal arc radius
+                height: 2.8,            // jump height
+                startRotY: mars.rotation.y,
+                startRotZ: mars.rotation.z,
+                didLandSplash: false,
+                didShake: false,
+                didVapor: false
+            };
+        }
+
+        function updateBackflip(deltaTime) {
+            if (!isBackflipping || !backflipState) return;
+
+            const s = backflipState;
+            s.t += deltaTime;
+            const k = Math.min(s.t / s.duration, 1);     // normalized 0..1
+            const theta = k * Math.PI * 2;               // one full rotation
+
+            // Offset along the long axis (forward direction) instead of circular XZ
+            // Forward is derived from starting yaw (rotation.y)
+            const forward = new THREE.Vector3(Math.sin(s.startRotY), 0, Math.cos(s.startRotY));
+            const along = forward.clone().multiplyScalar(Math.cos(theta) * s.radius);
+
+            // Vertical jump arc (simple smooth)
+            const py = s.startPos.y + s.height * Math.sin(Math.PI * Math.min(k, 1));
+
+            // Apply transform: start position + forward offset, keep Y arc
+            const pos = s.startPos.clone().add(along);
+            mars.position.set(pos.x, py, pos.z);
+            mars.rotation.x = theta;           // flip around X axis
+            mars.rotation.y = s.startRotY;     // keep yaw stable
+            mars.rotation.z = 0;               // prevent shoulder roll
+
+            // Landing effects near end
+            if (k >= 0.98 && !s.didLandSplash) {
+                s.didLandSplash = true;
+                triggerSplashEffect();         // bigger splash can be tuned in triggerSplashEffect()
+            }
+            if (k >= 0.98 && !s.didShake) {
+                s.didShake = true;
+                shakeCamera(500, 0.6);         // 500ms earthquake shake
+            }
+            if (k >= 0.98 && !s.didVapor) {
+                s.didVapor = true;
+                triggerVaporMist(mars.position);
+            }
+
+            // Finish
+            if (k >= 1) {
+                isBackflipping = false;
+                backflipState = null;
+                mars.rotation.x = 0;
+                mars.rotation.z = 0;           // ensure no residual roll
+                marsAI.isExecutingUrgentAction = false;
+
+                // Award points and message
+                if (typeof marsStats.score === 'number') {
+                    marsStats.score += 10000;
+                } else {
+                    marsStats.score = 10000;
+                }
+                showMessage('Congratulations! +10,000 points!');
+            }
+        }
+
+        function triggerVaporMist(origin) {
+            const particleCount = 80;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const material = new THREE.PointsMaterial({
+                color: 0xCCCCCC,
+                size: 0.25,
+                transparent: true,
+                opacity: 0.9,
+                depthWrite: false
+            });
+
+            const velocities = [];
+            for (let i = 0; i < particleCount; i++) {
+                positions[i*3]   = origin.x;
+                positions[i*3+1] = 0.2;
+                positions[i*3+2] = origin.z;
+                velocities[i] = new THREE.Vector3(
+                    (Math.random()-0.5)*0.4,
+                    Math.random()*0.8 + 0.4,
+                    (Math.random()-0.5)*0.4
+                );
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const points = new THREE.Points(geometry, material);
+            scene.add(points);
+
+            const start = Date.now();
+            function tick() {
+                const dt = 0.016;
+                const arr = geometry.attributes.position.array;
+                for (let i = 0; i < particleCount; i++) {
+                    arr[i*3]   += velocities[i].x * dt;
+                    arr[i*3+1] += velocities[i].y * dt;
+                    arr[i*3+2] += velocities[i].z * dt;
+                    velocities[i].y -= 0.5 * dt; // gravity
+                }
+                geometry.attributes.position.needsUpdate = true;
+                material.opacity = Math.max(0, material.opacity - 0.02);
+
+                if (material.opacity > 0.05) {
+                    requestAnimationFrame(tick);
+                } else {
+                    scene.remove(points);
+                    geometry.dispose();
+                    material.dispose();
+                }
+            }
+            tick();
+        }
+
         function isMarsInWater() {
             for (const pool of pools) {
                 if (mars.position.distanceTo(pool.position) < 4) { // 4 is pool radius
@@ -823,6 +1114,7 @@
             document.getElementById('sleepBtn').addEventListener('click', onSleepClick);
             document.getElementById('journalBtn').addEventListener('click', () => toggleJournal(true));
             document.getElementById('closeJournalBtn').addEventListener('click', () => toggleJournal(false));
+            document.getElementById('splashBtn').addEventListener('click', onSplashClick);
 
             // Journal Tabs
             document.querySelectorAll('.journal-tab').forEach(tab => {
@@ -843,6 +1135,7 @@
             
             // Window resize
             window.addEventListener('resize', onWindowResize);
+            window.addEventListener('keydown', onKeyDown);
         }
 
         function toggleJournal(forceOpen) {
@@ -852,8 +1145,10 @@
                 journal.classList.add('open');
                 // When opening the journal, refresh the log list
                 updateStoryLog(); 
+                showMessage('Journal opened');
             } else {
                 journal.classList.remove('open');
+                showMessage('Journal closed');
             }
         }
 
@@ -866,6 +1161,28 @@
             document.querySelectorAll('.journal-pane').forEach(pane => {
                 pane.classList.toggle('active', pane.id === `journal-${tabId}`);
             });
+            showMessage(`Journal tab: ${tabId}`);
+        }
+
+        function onSplashClick() {
+            if (isMarsInWater()) {
+                // Manually trigger a splash action
+                showMessage('You pressed Splash');
+                marsAI.currentAction = 'splash';
+                marsAI.isExecutingUrgentAction = true; // Prioritize this action
+                marsAI.actionStartTime = Date.now();
+                updateAIStatus('Having fun splashing!');
+            } else {
+                showMessage("MARS needs to be in the water to splash!");
+            }
+        }
+
+        function onKeyDown(event) {
+            // Space starts backflip combo when in water and not already flipping
+            if (event.code === 'Space' && isMarsInWater() && !isBackflipping) {
+                showMessage('You pressed Space: backflip!');
+                startBackflip();
+            }
         }
 
         function onSleepClick() {
@@ -876,6 +1193,7 @@
                 return;
             }
             // Initiate sleep action immediately
+            showMessage('You pressed Sleep');
             marsAI.currentAction = 'sleep';
             marsAI.isExecutingUrgentAction = true;
             marsAI.actionStartTime = Date.now();
@@ -896,6 +1214,11 @@
             for (let intersect of intersects) {
                 if (intersect.object.userData.type === 'ground') {
                     setMarsTarget(intersect.point);
+                    try {
+                        showMessage(`Manual move to (${intersect.point.x.toFixed(1)}, ${intersect.point.z.toFixed(1)})`);
+                    } catch (e) {
+                        showMessage('Manual move set');
+                    }
                     break;
                 }
             }
@@ -915,12 +1238,23 @@
                 const rock = intersects[0].object;
                 if (mars.position.distanceTo(rock.position) < 3) {
                     interactWithRock(rock);
+                } else {
+                    showMessage('You right-clicked a rock, but it\'s too far. Move closer to interact.');
                 }
             }
         }
         
         function setMarsTarget(position) {
-            mars.userData.targetPosition = new THREE.Vector3(position.x, 0.4, position.z);
+            // Clamp target to inside the habitat
+            const v = new THREE.Vector3(position.x, 0.4, position.z);
+            const fromCenter = new THREE.Vector3(v.x, 0, v.z);
+            const d = Math.sqrt(fromCenter.x*fromCenter.x + fromCenter.z*fromCenter.z);
+            if (d > HABITAT_INNER_RADIUS) {
+                fromCenter.setLength(HABITAT_INNER_RADIUS);
+                v.x = fromCenter.x;
+                v.z = fromCenter.z;
+            }
+            mars.userData.targetPosition = v;
             mars.userData.isMoving = true;
             
             // Create target indicator
@@ -935,7 +1269,7 @@
                 opacity: 0.7
             });
             currentTarget = new THREE.Mesh(targetGeometry, targetMaterial);
-            currentTarget.position.copy(position);
+            currentTarget.position.set(v.x, 0.1, v.z);
             currentTarget.position.y = 0.1;
             currentTarget.rotation.x = -Math.PI / 2;
             scene.add(currentTarget);
@@ -959,7 +1293,7 @@
             const beetleCount = 3 + Math.floor(Math.random() * 3);
             
             for (let i = 0; i < beetleCount; i++) {
-                const beetleGeometry = new THREE.SphereGeometry(0.1);
+                const beetleGeometry = new THREE.SphereGeometry(0.3);
                 const beetleMaterial = new THREE.MeshLambertMaterial({ color: 0x2F4F2F });
                 const beetle = new THREE.Mesh(beetleGeometry, beetleMaterial);
                 
@@ -985,6 +1319,96 @@
                 scene.add(beetle);
             }
         }
+
+        // Spawn a small number of ground beetles that immediately flee: most scatter to another rock; one hangs out near origin
+        function spawnFleeingBeetles(origin, count = 3, originRock = null) {
+            // Choose a destination rock different from originRock (if provided)
+            const candidateRocks = originRock ? rocks.filter(r => r !== originRock) : rocks.slice();
+            const destRock = candidateRocks.length > 0 ? candidateRocks[Math.floor(Math.random() * candidateRocks.length)] : null;
+
+            for (let i = 0; i < count; i++) {
+                const beetleGeometry = new THREE.SphereGeometry(0.3);
+                const beetleMaterial = new THREE.MeshLambertMaterial({ color: 0x2F4F2F });
+                const beetle = new THREE.Mesh(beetleGeometry, beetleMaterial);
+
+                // Start near the rock
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 0.2 + Math.random() * 0.3;
+                beetle.position.set(
+                    origin.x + Math.cos(angle) * radius,
+                    0.1,
+                    origin.z + Math.sin(angle) * radius
+                );
+
+                // Decide behavior: one hangs out near origin, others scatter toward a destination rock (if available)
+                if (i === 0) {
+                    // Hangout beetle: loiters near origin
+                    beetle.userData = {
+                        type: 'beetle',
+                        spawnTime: Date.now(),
+                        velocity: new THREE.Vector3((Math.random()-0.5)*0.05, 0, (Math.random()-0.5)*0.05),
+                        hangoutNear: true,
+                        hangoutPos: new THREE.Vector3(origin.x, 0.1, origin.z)
+                    };
+                } else {
+                    // Scatter beetles: pick target near another rock if possible, otherwise run away from MARS
+                    let target = null;
+                    if (destRock) {
+                        target = destRock.position.clone();
+                        target.x += (Math.random()-0.5) * 1.5;
+                        target.z += (Math.random()-0.5) * 1.5;
+                    }
+
+                    const speed = 0.35 + Math.random() * 0.2;
+                    let initialVel;
+                    if (target) {
+                        initialVel = target.clone().sub(beetle.position).normalize().multiplyScalar(speed);
+                    } else {
+                        // Fallback: run away from MARS
+                        initialVel = beetle.position.clone().sub(mars.position).normalize().multiplyScalar(speed);
+                    }
+
+                    beetle.userData = {
+                        type: 'beetle',
+                        spawnTime: Date.now(),
+                        velocity: initialVel,
+                        scatterTarget: target
+                    };
+                }
+
+                beetles.push(beetle);
+                scene.add(beetle);
+            }
+        }
+
+        // Lightly nudge a rock to make beetles scatter without flipping it
+        function nudgeRock(rock) {
+            const now = Date.now();
+            const cooldown = 4000; // 4s cooldown per rock
+            if (!rock.userData.lastNudgeTime || (now - rock.userData.lastNudgeTime) > cooldown) {
+                rock.userData.lastNudgeTime = now;
+                // Tiny wiggle animation
+                const originalZ = rock.rotation.z;
+                const targetZ = originalZ + Math.PI * 0.06;
+                const start = Date.now();
+                const duration = 250;
+                function wiggle() {
+                    const t = Math.min((Date.now() - start) / duration, 1);
+                    const ease = t < 0.5 ? (2*t*t) : (-1 + (4 - 2*t)*t); // simple ease in-out
+                    rock.rotation.z = originalZ + (targetZ - originalZ) * ease;
+                    if (t < 1) {
+                        requestAnimationFrame(wiggle);
+                    } else {
+                        rock.rotation.z = originalZ; // return to rest
+                    }
+                }
+                wiggle();
+
+                // Spawn ~3 fleeing beetles, with destination behavior
+                spawnFleeingBeetles(rock.position, 3, rock);
+                showMessage('MARS nudges the rock — beetles scatter! 🪲');
+            }
+        }
         
         function updateMars(deltaTime) {
             if (!mars.userData.isMoving || !mars.userData.targetPosition) return;
@@ -1006,6 +1430,19 @@
             // Apply time multiplier to movement speed
             const speed = 3 * deltaTime * timeMultiplier;
             mars.position.add(direction.multiplyScalar(speed));
+
+            // Keep MARS inside habitat
+            const center = new THREE.Vector3(0, mars.position.y, 0);
+            const toPos = mars.position.clone().sub(center);
+            const dist = Math.sqrt(toPos.x*toPos.x + toPos.z*toPos.z);
+            if (dist > HABITAT_INNER_RADIUS) {
+                toPos.setLength(HABITAT_INNER_RADIUS);
+                mars.position.set(toPos.x, mars.position.y, toPos.z);
+                // Stop at boundary to avoid jittering forward
+                mars.userData.isMoving = false;
+                mars.userData.targetPosition = null;
+                if (currentTarget) { scene.remove(currentTarget); currentTarget = null; }
+            }
             
             // Apply time multiplier to jumping animation
             mars.position.y = 0.4 + Math.sin(Date.now() * 0.01 * timeMultiplier) * 0.1;
@@ -1084,6 +1521,30 @@
             const h = ((hour % 24) + 24) % 24;
             return h >= 20 || h < 5; // 8pm - 5am
         }
+
+        function shakeCamera(durationMs = 500, magnitude = 0.5) {
+            const start = Date.now();
+            const base = camera.position.clone();
+
+            function tick() {
+                const elapsed = Date.now() - start;
+                const k = Math.min(elapsed / durationMs, 1);
+                const damp = 1 - k;
+
+                camera.position.set(
+                    base.x + (Math.random() - 0.5) * magnitude * damp,
+                    base.y + (Math.random() - 0.5) * magnitude * damp,
+                    base.z + (Math.random() - 0.5) * magnitude * damp
+                );
+
+                if (k < 1) {
+                    requestAnimationFrame(tick);
+                } else {
+                    camera.position.copy(base);
+                }
+            }
+            tick();
+        }
         
         function updateBeetles(deltaTime) {
             const currentTime = Date.now();
@@ -1093,6 +1554,9 @@
             
             // Handle rock regeneration
             manageRockRegeneration(currentTime);
+
+            // Periodically trigger a poop swarm
+            triggerPoopSwarm(currentTime);
             
             beetles.forEach((beetle, index) => {
                 const age = currentTime - beetle.userData.spawnTime;
@@ -1146,16 +1610,11 @@
                     !rock.userData.isRegenerating && 
                     timeSinceRegen > adjustedInterval) {
                     
-                    startRockRegeneration(rock);
+                    // Directly complete regeneration at interval to meet 20s requirement
+                    completeRockRegeneration(rock);
                 }
                 
-                // Check if regeneration is complete
-                if (rock.userData.isRegenerating && rock.userData.regenBeetles.length >= 5) {
-                    const regenDuration = 5000 / timeMultiplier; // 5 seconds to complete
-                    if (timeSinceRegen > adjustedInterval + regenDuration) {
-                        completeRockRegeneration(rock);
-                    }
-                }
+                // (No extra delay beyond interval; rollback happens immediately now)
             });
         }
         
@@ -1166,7 +1625,7 @@
             const beetleCount = 5 + Math.floor(Math.random() * 4);
             
             for (let i = 0; i < beetleCount; i++) {
-                const beetleGeometry = new THREE.SphereGeometry(0.08); // Slightly smaller
+                const beetleGeometry = new THREE.SphereGeometry(0.2); // Slightly smaller
                 const beetleMaterial = new THREE.MeshLambertMaterial({ color: 0x4F4F2F }); // Darker color
                 const beetle = new THREE.Mesh(beetleGeometry, beetleMaterial);
                 
@@ -1205,13 +1664,22 @@
             rock.userData.hasBeenTurned = false;
             rock.userData.isRegenerating = false;
             rock.userData.lastRegenTime = Date.now();
-            rock.rotation.z = 0; // Reset tilt
+            // Smoothly roll back to normal rotation
+            const startRot = rock.rotation.z;
+            const endRot = 0;
+            const startTime = Date.now();
+            const duration = 600; // ms roll-back
+            function animateRollback() {
+                const t = Math.min(1, (Date.now() - startTime) / duration);
+                // ease in-out
+                const ease = t < 0.5 ? (2*t*t) : (-1 + (4 - 2*t)*t);
+                rock.rotation.z = startRot + (endRot - startRot) * ease;
+                if (t < 1) requestAnimationFrame(animateRollback);
+            }
+            animateRollback();
             
             // Return to normal color
             rock.material.color.setHex(0x696969);
-            
-            // Move rock to new random location
-            moveRockToNewLocation(rock);
             
             // Convert swarming beetles to normal ground beetles
             rock.userData.regenBeetles.forEach(beetle => {
@@ -1226,11 +1694,14 @@
                 
                 // Change to normal beetle appearance
                 beetle.geometry.dispose();
-                beetle.geometry = new THREE.SphereGeometry(0.1);
+                beetle.geometry = new THREE.SphereGeometry(0.3);
                 beetle.material.color.setHex(0x2F4F2F);
             });
             
             rock.userData.regenBeetles = [];
+
+            // Ensure some bugs are present under the rock upon reset
+            spawnBeetles(rock.position);
             
             showMessage(`Rock refreshed and moved! Ready for more beetles! 🪨✨`, Math.max(500, 2500 / timeMultiplier));
         }
@@ -1288,6 +1759,20 @@
             const direction = beetle.userData.landingTarget.clone().sub(beetle.position).normalize();
             const flySpeed = 0.05 * timeMultiplier;
             beetle.position.add(direction.multiplyScalar(flySpeed));
+            // Clamp to habitat radius while flying
+            const dx = beetle.position.x, dz = beetle.position.z;
+            const r = Math.sqrt(dx*dx + dz*dz);
+            const limit = HABITAT_INNER_RADIUS;
+            // If beyond outer radius, drift back toward center
+            if (r > HABITAT_RADIUS) {
+                const inward = new THREE.Vector3(-dx, 0, -dz).normalize();
+                beetle.position.add(inward.multiplyScalar(0.1));
+            }
+            if (r > limit) {
+                const ang = Math.atan2(dz, dx);
+                beetle.position.x = Math.cos(ang) * limit;
+                beetle.position.z = Math.sin(ang) * limit;
+            }
             
             if (beetle.position.distanceTo(beetle.userData.landingTarget) < 0.5) {
                 beetle.userData.isFlying = false;
@@ -1301,16 +1786,143 @@
         }
         
         function handleGroundBeetle(beetle) {
-            // Existing ground movement logic
+            // Steering for scatter and hangout behavior
+            // Attraction: beetles like to skurry to the nearest poop pile
+            let poopAttraction = null;
+            if (poopSpots.length > 0) {
+                // find nearest poop lump
+                let nearest = null;
+                let bestD2 = Infinity;
+                for (const p of poopSpots) {
+                    const dx = p.position.x - beetle.position.x;
+                    const dz = p.position.z - beetle.position.z;
+                    const d2 = dx*dx + dz*dz;
+                    if (d2 < bestD2) { bestD2 = d2; nearest = p; }
+                }
+                if (nearest) poopAttraction = nearest.position.clone();
+            }
+            // Swarm behavior: head to selected poopSpot then hide
+            if (beetle.userData.behavior === 'swarm_to_poop' && beetle.userData.swarmTarget) {
+                const dir = beetle.userData.swarmTarget.clone().sub(beetle.position);
+                const dist = dir.length();
+                if (dist > 0.01) {
+                    dir.normalize();
+                    beetle.userData.velocity.lerp(dir.multiplyScalar(0.22), 0.12 * timeMultiplier);
+                }
+                // Reached swarm area
+                if (dist < 0.6) {
+                    if (!beetle.userData.swarmLingerUntil) {
+                        beetle.userData.swarmLingerUntil = Date.now() + 1000; // linger ~1s
+                        // slow and jitter slightly
+                        beetle.userData.velocity.multiplyScalar(0.2);
+                    }
+                    // After linger, pick a hide target
+                    if (Date.now() > beetle.userData.swarmLingerUntil) {
+                        const hide = pickHideTargetNear(beetle.position);
+                        if (hide) {
+                            beetle.userData.behavior = 'hide_after_swarm';
+                            beetle.userData.scatterTarget = hide;
+                            beetle.userData.swarmTarget = null;
+                            beetle.userData.swarmLingerUntil = null;
+                        } else {
+                            // fallback to nearest poop attraction
+                            if (poopAttraction) {
+                                beetle.userData.scatterTarget = poopAttraction.clone();
+                                beetle.userData.behavior = 'hide_after_swarm';
+                            } else {
+                                beetle.userData.behavior = null;
+                            }
+                        }
+                    }
+                }
+            } else if (beetle.userData.behavior === 'hide_after_swarm' && beetle.userData.scatterTarget) {
+                const dir = beetle.userData.scatterTarget.clone().sub(beetle.position);
+                const dist = dir.length();
+                if (dist > 0.01) {
+                    dir.normalize();
+                    beetle.userData.velocity.lerp(dir.multiplyScalar(0.25), 0.1 * timeMultiplier);
+                }
+                if (dist < 0.5) {
+                    // Arrived at hide location -> hang out there
+                    beetle.userData.hangoutNear = true;
+                    beetle.userData.hangoutPos = beetle.userData.scatterTarget.clone();
+                    beetle.userData.scatterTarget = null;
+                    beetle.userData.behavior = null;
+                    beetle.userData.velocity.multiplyScalar(0.2);
+                }
+            } else if (beetle.userData.scatterTarget) {
+                const dir = beetle.userData.scatterTarget.clone().sub(beetle.position);
+                const dist = dir.length();
+                if (dist > 0.01) {
+                    dir.normalize();
+                    // steer toward target
+                    beetle.userData.velocity.lerp(dir.multiplyScalar(0.25), 0.1 * timeMultiplier);
+                    // arrive and convert to hangout near target rock
+                    if (dist < 0.6) {
+                        beetle.userData.hangoutNear = true;
+                        beetle.userData.hangoutPos = beetle.userData.scatterTarget.clone();
+                        beetle.userData.scatterTarget = null;
+                        // slow down upon arriving
+                        beetle.userData.velocity.multiplyScalar(0.2);
+                    }
+                }
+            } else if (beetle.userData.hangoutNear && beetle.userData.hangoutPos) {
+                // Gentle wander around hangout position
+                const toHome = beetle.userData.hangoutPos.clone().sub(beetle.position);
+                if (toHome.length() > 0.8) {
+                    // pull back toward hangout
+                    toHome.normalize();
+                    beetle.userData.velocity.add(toHome.multiplyScalar(0.02));
+                } else if (Math.random() < 0.02 * timeMultiplier) {
+                    // random small drift
+                    beetle.userData.velocity.add(new THREE.Vector3((Math.random()-0.5)*0.02, 0, (Math.random()-0.5)*0.02));
+                }
+                // dampen velocity for loitering
+                beetle.userData.velocity.multiplyScalar(0.98);
+            } else {
+                // Existing ground movement logic
+                if (Math.random() < (0.02 * timeMultiplier)) {
+                    beetle.userData.velocity.set(
+                        (Math.random() - 0.5) * 0.1,
+                        0,
+                        (Math.random() - 0.5) * 0.1
+                    );
+                }
+            }
+
+            // Apply poop attraction gently if present
+            if (poopAttraction) {
+                const dirToPoop = poopAttraction.clone().sub(beetle.position);
+                const d = dirToPoop.length();
+                if (d > 0.01) {
+                    dirToPoop.normalize();
+                    // stronger pull when closer
+                    const pull = Math.min(0.08, 0.03 + (1/Math.max(d,0.5))*0.01);
+                    beetle.userData.velocity.add(dirToPoop.multiplyScalar(pull * timeMultiplier));
+                }
+            }
+
             const scaledVelocity = beetle.userData.velocity.clone().multiplyScalar(timeMultiplier);
             beetle.position.add(scaledVelocity);
-            
-            if (Math.random() < (0.02 * timeMultiplier)) {
-                beetle.userData.velocity.set(
-                    (Math.random() - 0.5) * 0.1,
-                    0,
-                    (Math.random() - 0.5) * 0.1
-                );
+
+            // Keep beetles inside habitat: clamp and reflect velocity
+            const dx = beetle.position.x;
+            const dz = beetle.position.z;
+            const r2 = dx*dx + dz*dz;
+            const limit = HABITAT_INNER_RADIUS;
+            // If beyond outer radius, drift back toward center
+            const r = Math.sqrt(r2);
+            if (r > HABITAT_RADIUS) {
+                const inward = new THREE.Vector3(-dx, 0, -dz).normalize();
+                beetle.userData.velocity.add(inward.multiplyScalar(0.12));
+            }
+            if (r2 > limit*limit) {
+                const ang = Math.atan2(dz, dx);
+                beetle.position.x = Math.cos(ang) * limit;
+                beetle.position.z = Math.sin(ang) * limit;
+                // Bounce back inward
+                const inward = new THREE.Vector3(-Math.cos(ang), 0, -Math.sin(ang));
+                beetle.userData.velocity.add(inward.multiplyScalar(0.1));
             }
         }
         
@@ -1348,15 +1960,85 @@
                 }
             }
         }
+
+        // Periodically choose a few ground beetles to swarm to a poop pile
+        function triggerPoopSwarm(currentTime) {
+            const interval = POOP_SWARM_INTERVAL_MS / timeMultiplier;
+            if (currentTime - lastPoopSwarmTime < interval) return;
+            if (poopSpots.length === 0 || beetles.length === 0) return;
+
+            lastPoopSwarmTime = currentTime;
+
+            // Pick 1-3 ground beetles that are not flying or already in a special behavior
+            const candidates = beetles.filter(b => !b.userData.isFlying && !b.userData.isSwarmingRock && !b.userData.behavior);
+            if (candidates.length === 0) return;
+
+            const count = Math.min(1 + Math.floor(Math.random() * 3), candidates.length);
+            for (let i = 0; i < count; i++) {
+                const idx = Math.floor(Math.random() * candidates.length);
+                const b = candidates.splice(idx, 1)[0];
+                // Choose a random poop spot to swarm to
+                const ps = poopSpots[Math.floor(Math.random() * poopSpots.length)];
+                if (!ps) continue;
+                b.userData.behavior = 'swarm_to_poop';
+                b.userData.swarmTarget = ps.position.clone();
+                // give it a little initial push toward target
+                const dir = b.userData.swarmTarget.clone().sub(b.position).normalize();
+                b.userData.velocity.add(dir.multiplyScalar(0.1));
+            }
+        }
+
+        // Choose a nearby hide target under a rock or another poop pile
+        function pickHideTargetNear(origin) {
+            const options = [];
+            // Nearby rocks
+            for (const r of rocks) {
+                const pos = r.position.clone();
+                // small offset around rock
+                const ang = Math.random() * Math.PI * 2;
+                pos.x += Math.cos(ang) * 0.6;
+                pos.z += Math.sin(ang) * 0.6;
+                options.push(pos);
+            }
+            // Other poop piles
+            for (const p of poopSpots) {
+                const pos = p.position.clone();
+                const ang = Math.random() * Math.PI * 2;
+                pos.x += Math.cos(ang) * 0.4;
+                pos.z += Math.sin(ang) * 0.4;
+                options.push(pos);
+            }
+            if (options.length === 0) return null;
+
+            // Choose the closest hide option to origin
+            let best = null;
+            let bestD2 = Infinity;
+            for (const pos of options) {
+                const dx = pos.x - origin.x;
+                const dz = pos.z - origin.z;
+                const d2 = dx*dx + dz*dz;
+                if (d2 < bestD2) { bestD2 = d2; best = pos; }
+            }
+            if (!best) return null;
+
+            // Clamp to habitat
+            const len = Math.sqrt(best.x*best.x + best.z*best.z);
+            if (len > HABITAT_INNER_RADIUS) {
+                best.x = (best.x / len) * HABITAT_INNER_RADIUS;
+                best.z = (best.z / len) * HABITAT_INNER_RADIUS;
+            }
+            best.y = 0.1;
+            return best;
+        }
         
         function spawnFlyingBeetle() {
-            const beetleGeometry = new THREE.SphereGeometry(0.1);
+            const beetleGeometry = new THREE.SphereGeometry(0.3);
             const beetleMaterial = new THREE.MeshLambertMaterial({ color: 0x2F4F2F });
             const beetle = new THREE.Mesh(beetleGeometry, beetleMaterial);
             
-            // Spawn from random edge of habitat at flying height
+            // Spawn from habitat edge at flying height
             const angle = Math.random() * Math.PI * 2;
-            const spawnDistance = 25; // Outside the habitat
+            const spawnDistance = HABITAT_INNER_RADIUS; // at the border
             
             beetle.position.set(
                 Math.cos(angle) * spawnDistance,
@@ -1366,7 +2048,7 @@
             
             // Random landing target inside habitat
             const landingAngle = Math.random() * Math.PI * 2;
-            const landingRadius = Math.random() * 15;
+            const landingRadius = Math.random() * (HABITAT_INNER_RADIUS - 1);
             const landingTarget = new THREE.Vector3(
                 Math.cos(landingAngle) * landingRadius,
                 0.1,
@@ -1394,6 +2076,13 @@
             marsStats.hunger = Math.max(0, marsStats.hunger - 15);
             marsStats.thirst = Math.max(0, marsStats.thirst - 10);
             marsStats.happiness = Math.min(100, marsStats.happiness + 20);
+        }
+        
+        // Frogs are tastier: bigger hunger relief and happiness boost
+        function feedMarsFrog() {
+            marsStats.hunger = Math.max(0, marsStats.hunger - 25);
+            marsStats.thirst = Math.max(0, marsStats.thirst - 5);
+            marsStats.happiness = Math.min(100, marsStats.happiness + 25);
         }
         
         function updateBeetles(deltaTime) {
@@ -1438,6 +2127,14 @@
                 !beetle.userData.isSwarmingRock &&
                 mars.position.distanceTo(beetle.position) < 8
             );
+
+            // If hunting and close to an unturned rock, nudge it to spawn a few beetles
+            if (marsAI.currentAction === 'hunt') {
+                const closeRock = rocks.find(rock => !rock.userData.hasBeenTurned && mars.position.distanceTo(rock.position) < 2.5);
+                if (closeRock) {
+                    nudgeRock(closeRock);
+                }
+            }
             
             if (nearbyGroundBeetles.length > 0 && marsAI.currentAction !== 'hunting_beetle') {
                 // Override current action to hunt beetles
@@ -1723,16 +2420,40 @@
         }
         
         function createPoopSpot() {
-            const poopGeometry = new THREE.SphereGeometry(0.2, 8, 8);
-            const poopMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
-            const poop = new THREE.Mesh(poopGeometry, poopMaterial);
-            
-            poop.position.copy(mars.position);
-            poop.position.y = 0.1;
-            poop.userData = { type: 'poop', created: Date.now() };
-            
-            poopSpots.push(poop);
-            scene.add(poop);
+            // Create or grow a poop pile: bigger brown pile with adjacent lumps
+            const basePos = new THREE.Vector3(mars.position.x, 0.1, mars.position.z);
+            const material = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const makeLump = (pos, size=0.35) => {
+                const geom = new THREE.SphereGeometry(size, 10, 10);
+                const mesh = new THREE.Mesh(geom, material.clone());
+                mesh.position.copy(pos);
+                mesh.userData = { type: 'poop', created: Date.now(), isPoopLump: true };
+                scene.add(mesh);
+                poopSpots.push(mesh);
+                return mesh;
+            };
+
+            if (lastPoopPile.center) {
+                // Place adjacent to existing pile center within small radius, and scale some existing lumps
+                const offsetAng = Math.random() * Math.PI * 2;
+                const offsetRad = 0.25 + Math.random() * 0.25;
+                const pos = lastPoopPile.center.clone();
+                pos.x += Math.cos(offsetAng) * offsetRad;
+                pos.z += Math.sin(offsetAng) * offsetRad;
+                const lump = makeLump(pos, 0.3 + Math.random()*0.15);
+                lastPoopPile.meshes.push(lump);
+                // Randomly scale up one existing lump to grow pile
+                if (lastPoopPile.meshes.length > 0) {
+                    const idx = Math.floor(Math.random() * lastPoopPile.meshes.length);
+                    const m = lastPoopPile.meshes[idx];
+                    m.scale.multiplyScalar(1.1);
+                }
+            } else {
+                // Start a new pile at current position with a larger base
+                const base = makeLump(basePos, 0.5);
+                lastPoopPile.center = basePos.clone();
+                lastPoopPile.meshes = [base];
+            }
         }
         
         function updateActionQueueUI() {
@@ -1787,13 +2508,27 @@
             const deltaHours = hoursPerSecondAt1x * deltaTime * timeMultiplier;
             gameTime = (gameTime + deltaHours) % 24;
             
-            // Happiness affected by other stats
+            // Happiness affected by other stats (progressive drain)
+            // Progressive penalties kick in earlier and scale up as the stat rises
             let happinessMod = 0;
-            if (marsStats.hunger > 70) happinessMod -= 0.5;
+            // Hunger: start penalizing above 40%
+            if (marsStats.hunger > 40) {
+                const k = (marsStats.hunger - 40) / 60; // 0..1 from 40->100
+                happinessMod -= 0.6 * Math.min(1, Math.max(0, k));
+            }
+            // Bladder: start penalizing above 30%
+            if (marsStats.bladder > 30) {
+                const k = (marsStats.bladder - 30) / 70; // 0..1 from 30->100
+                happinessMod -= 0.8 * Math.min(1, Math.max(0, k));
+            }
+            // Bowel: start penalizing above 30%
+            if (marsStats.bowel > 30) {
+                const k = (marsStats.bowel - 30) / 70; // 0..1 from 30->100
+                happinessMod -= 0.8 * Math.min(1, Math.max(0, k));
+            }
+            // Keep thirst penalty at high levels as before
             if (marsStats.thirst > 70) happinessMod -= 0.7;
-            if (marsStats.bladder > 80) happinessMod -= 1.0;
-            if (marsStats.bowel > 80) happinessMod -= 1.0;
-            
+
             marsStats.happiness = Math.max(0, Math.min(100, marsStats.happiness + happinessMod * deltaTime));
             
             // Growth stages
@@ -1847,6 +2582,7 @@
             const minutes = Math.floor(((gameTime - Math.floor(gameTime)) * 60));
             const pad = (n) => n.toString().padStart(2, '0');
             document.getElementById('dayTimeDisplay').textContent = `Day ${storyManager.currentDay}, ${pad(hour)}:${pad(minutes)}`;
+            document.getElementById('scoreDisplay').textContent = marsStats.score;
             // Sleep button state
             const sleepBtn = document.getElementById('sleepBtn');
             const canSleep = marsStats.energy <= 0 || isNightHour(gameTime) || marsStats.energy < 20;
@@ -1858,6 +2594,7 @@
             const currentIndex = speeds.indexOf(timeMultiplier);
             timeMultiplier = speeds[(currentIndex + 1) % speeds.length];
             document.getElementById('timeSpeed').textContent = `Time: ${timeMultiplier}x`;
+            showMessage(`Time speed set to ${timeMultiplier}x`);
         }
         
         function showMessage(text, duration = 3000) {
@@ -1934,8 +2671,13 @@
                 updateMarsAI(deltaTime);
                 updateMars(deltaTime);
                 updateBeetles(deltaTime);
+                updateFrogs(deltaTime);
                 updateStats(deltaTime);
                 updateEnvironment();
+                updateBackflip(deltaTime);   // backflip per-frame update
+                animateSplash();             // per-frame splash animation
+                const splashBtn = document.getElementById('splashBtn');
+                if (splashBtn) splashBtn.disabled = !isMarsInWater();
             }
             
             renderer.render(scene, camera);
