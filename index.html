@@ -19,13 +19,64 @@
             height: 100vh;
         }
         
-        #ui {
+        #left-sidebar {
             position: absolute;
-            top: 20px;
-            left: 20px;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 390px;
+            background: rgba(0,0,0,0.7);
             z-index: 100;
             color: white;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+            transition: transform 0.3s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #left-sidebar.collapsed {
+            transform: translateX(-100%) translateX(40px);
+        }
+
+        #messageLog {
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 10px;
+            margin-top: 10px;
+            flex-grow: 1; /* Allow this to grow */
+            min-height: 100px; /* Minimum height */
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-message {
+            font-size: 12px;
+            margin: 2px 0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        #toggle-log-btn {
+            position: absolute;
+            top: 0;
+            right: -30px;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            line-height: 30px;
+            text-align: center;
+            background: rgba(0,0,0,0.7);
+            border-top-right-radius: 5px;
+            border-bottom-right-radius: 5px;
+            border-left: 1px solid #666;
+        }
+
+        #ui.collapsed #toggle-log-btn {
+            right: -40px;
         }
         
         #statsPanel {
@@ -77,19 +128,30 @@
             border: none;
             color: white;
             padding: 8px 16px;
-            margin: 2px;
             border-radius: 5px;
             cursor: pointer;
             font-family: inherit;
         }
         
-        button:hover { background: #45a049; }
-        button:active { background: #3d8b40; }
-        
-        #timeSpeed {
-            background: #2196F3;
+        #journalBtn { background: #607D8B; }
+        #journalBtn:hover { background: #546E7A; }
+
+        /* Journal Styles */
+        #journal { 
+            position: absolute;
+            top: 0;
+            right: -100%; /* Start off-screen */
+            width: 400px;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            z-index: 400;
+            color: white;
+            padding: 20px;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+            transition: right 0.5s ease-in-out;
+            display: flex;
+            flex-direction: column;
         }
-        #timeSpeed:hover { background: #1976D2; }
         
         #story {
             position: absolute;
@@ -144,29 +206,18 @@
             transform: translateX(100%);
         }
         
-        #instructions {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 10px;
-            border-radius: 10px;
-            font-size: 12px;
-            max-width: 250px;
-        }
 
         #actionQueue {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 100;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 15px;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
             border-radius: 10px;
-            min-width: 200px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+            margin-top: 10px;
+            /* Removed absolute positioning */
+        }
+
+        #actionQueue h4 {
+            margin-top: 0; /* Remove extra space above title */
+            margin-bottom: 8px;
         }
 
         .action-item {
@@ -209,7 +260,8 @@
 </head>
 <body>
     <div id="gameContainer">
-        <div id="ui">
+        <div id="left-sidebar">
+            <button id="toggle-log-btn">◀</button>
             <div id="statsPanel">
                 <h3>MARS Status</h3>
                 <div>
@@ -246,37 +298,31 @@
             <div id="controls">
                 <button id="timeSpeed">Time: 1x</button>
                 <button id="sleepBtn">Sleep</button>
-                <button id="storyLogBtn">Story Log</button>
+                <button id="journalBtn">Journal</button>
                 <button onclick="saveGame()">Save Game</button>
                 <button onclick="loadGame()">Load Game</button>
+                <button id="splashBtn" disabled>Splash</button>
             </div>
-        </div>
-        
-        <div id="actionQueue">
-            <h4>🧠 MARS's Mind</h4>
-            <div id="actionList">
-                <div class="action-item action-current">
-                    <span class="action-icon">🎯</span>
-                    <span>Thinking...</span>
+
+            <div id="actionQueue">
+                <h4>🧠 MARS's Mind</h4>
+                <div id="actionList">
+                    <div class="action-item action-current">
+                        <span class="action-icon">🎯</span>
+                        <span>Thinking...</span>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
+                    <div>🤖 Autonomous Mode: ON</div>
+                    <div id="aiStatus">Evaluating needs...</div>
                 </div>
             </div>
-            <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
-                <div>🤖 Autonomous Mode: ON</div>
-                <div id="aiStatus">Evaluating needs...</div>
+
+            <div id="messageLog">
+                <!-- Messages will be added here -->
             </div>
         </div>
         
-        <div id="instructions">
-            <strong>🤖 MARS is Autonomous!</strong><br>
-            • MARS thinks and acts independently<br>
-            • Watch his action queue on the right<br>
-            • He prioritizes urgent needs (>50%)<br>
-            • You can still guide him with clicks<br>
-            • Right-click rocks to help him hunt<br>
-            <br><strong>Manual Controls:</strong><br>
-            • Left Click: Override and move MARS<br>
-            • Right Click: Interact with rocks<br>
-        </div>
         
         <div id="curtains">
             <div class="curtain curtain-left"></div>
@@ -289,13 +335,52 @@
         </div>
 
         <!-- Story Log Modal -->
-        <div id="storyLogModal" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index: 350; background: rgba(0,0,0,0.9); color: white; padding: 20px; border-radius: 12px; max-width: 600px; max-height: 60vh; overflow-y: auto; border: 3px solid #FFD700;">
-            <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h3 style="margin:0;">Story Log</h3>
-                <button id="closeStoryLog" style="background:#444;">Close</button>
+        <!-- Journal Popup -->
+        <div id="journal">
+            <div class="journal-header">
+                <h2>MARS's Journal</h2>
+                <button id="closeJournalBtn">Close</button>
             </div>
-            <ul id="storyLogList" style="list-style: none; padding-left: 0; margin: 0;"></ul>
+            <div class="journal-tabs">
+                <div class="journal-tab active" data-tab="story">Story</div>
+                <div class="journal-tab" data-tab="missions">Missions</div>
+                <div class="journal-tab" data-tab="quests">Quests</div>
+                <div class="journal-tab" data-tab="logs">Logs</div>
+                <div class="journal-tab" data-tab="status">Status</div>
+                <div class="journal-tab" data-tab="character">Character</div>
+            </div>
+            <div class="journal-content">
+                <div class="journal-pane active" id="journal-story">
+                    <h3>The Story of MARS</h3>
+                    <p>The full story of MARS the baby hippo will be written here.</p>
+                </div>
+                <div class="journal-pane" id="journal-missions">
+                    <h3>Current Missions</h3>
+                    <p>Mission objectives will be listed here.</p>
+                </div>
+                <div class="journal-pane" id="journal-quests">
+                    <h3>Active Quests</h3>
+                    <p>Side quests and special tasks will appear here.</p>
+                </div>
+                <div class="journal-pane" id="journal-logs">
+                    <h3>Event Logs</h3>
+                    <ul id="storyLogList" style="list-style: none; padding-left: 0; margin: 0;"></ul>
+                </div>
+                <div class="journal-pane" id="journal-status">
+                    <h3>Hippo Status</h3>
+                    <p>Detailed character status and buffs/debuffs.</p>
+                </div>
+                <div class="journal-pane" id="journal-character">
+                    <h3>Character Sheet</h3>
+                    <p>Information about MARS's personality, growth, and history.</p>
+                </div>
+            </div>
+            <div class="journal-footer">
+                <p>A tribute to the $MARS coin project.</p>
+            </div>
         </div>
+
+        <!-- (The old storyLogModal is now integrated into the journal) -->
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -323,6 +408,7 @@
         let poopSpots = [];
         let currentTarget = null;
         let pathfinding = null;
+        let splashParticles = null;
         
         // Beetle spawning system
         let beetleSpawner = {
@@ -354,7 +440,8 @@
             poop: { icon: '💩', name: 'Relieving bowel', duration: 3000 },
             pee: { icon: '💛', name: 'Relieving bladder', duration: 2000 },
             eat: { icon: '🍃', name: 'Eating grass', duration: 6000 },
-            sleep: { icon: '🛌', name: 'Sleeping', duration: 8000 }
+            sleep: { icon: '🛌', name: 'Sleeping', duration: 8000 },
+            splash: { icon: '💦', name: 'Splashing', duration: 4000 }
         };
         
         // MARS Stats
@@ -473,6 +560,18 @@
             
             // Start opening sequence immediately
             setTimeout(startOpeningSequence, 500);
+
+            // Add instructions to the message log
+            showMessage("• Right Click: Interact with rocks");
+            showMessage("• Left Click: Override and move MARS");
+            showMessage("Manual Controls:");
+            showMessage(" "); // Spacer
+            showMessage("• Right-click rocks to help him hunt");
+            showMessage("• You can still guide him with clicks");
+            showMessage("• He prioritizes urgent needs (>50%)");
+            showMessage("• Watch his action queue up above");
+            showMessage("• MARS thinks and acts independently");
+            showMessage("🤖 MARS is Autonomous!");
         }
         
         function createWorld() {
@@ -612,6 +711,91 @@
             }
         }
         
+        function createSplashParticles() {
+            const particleCount = 100;
+            const particles = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = mars.position.x;
+                positions[i * 3 + 1] = mars.position.y;
+                positions[i * 3 + 2] = mars.position.z;
+            }
+
+            particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particles.userData.velocities = [];
+
+            const particleMaterial = new THREE.PointsMaterial({
+                color: 0x4ecdc4,
+                size: 0.3,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+
+            splashParticles = new THREE.Points(particles, particleMaterial);
+            splashParticles.visible = false;
+            scene.add(splashParticles);
+        }
+
+        function animateSplash() {
+            if (!splashParticles || !splashParticles.visible) return;
+
+            const positions = splashParticles.geometry.attributes.position.array;
+            const velocities = splashParticles.geometry.userData.velocities;
+            let activeParticles = 0;
+
+            for (let i = 0; i < positions.length / 3; i++) {
+                if (velocities[i].y > -9) { // If particle is still "alive"
+                    positions[i * 3] += velocities[i].x * 0.05;
+                    positions[i * 3 + 1] += velocities[i].y * 0.05;
+                    positions[i * 3 + 2] += velocities[i].z * 0.05;
+                    velocities[i].y -= 0.5; // Gravity
+                    activeParticles++;
+                }
+            }
+
+            if (activeParticles === 0) {
+                splashParticles.visible = false; // Hide when all particles are done
+            }
+
+            splashParticles.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function triggerSplashEffect() {
+            if (!splashParticles) createSplashParticles();
+
+            const positions = splashParticles.geometry.attributes.position.array;
+            const velocities = [];
+            const splashPower = 3;
+
+            for (let i = 0; i < positions.length / 3; i++) {
+                positions[i * 3] = mars.position.x;
+                positions[i * 3 + 1] = 0.1; // Start at water level
+                positions[i * 3 + 2] = mars.position.z;
+
+                const angle = Math.random() * Math.PI * 2;
+                const horizontalSpeed = Math.random() * splashPower;
+                velocities[i] = new THREE.Vector3(
+                    Math.cos(angle) * horizontalSpeed,
+                    Math.random() * 5 + 4, // Upward velocity
+                    Math.sin(angle) * horizontalSpeed
+                );
+            }
+            splashParticles.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            splashParticles.geometry.userData.velocities = velocities;
+            splashParticles.visible = true;
+        }
+
+        function isMarsInWater() {
+            for (const pool of pools) {
+                if (mars.position.distanceTo(pool.position) < 4) { // 4 is pool radius
+                    return true;
+                }
+            }
+            return false;
+        }
+
         function createMars() {
             // MARS as a cube (placeholder)
             const marsGeometry = new THREE.BoxGeometry(1, 0.8, 1.5);
@@ -635,13 +819,53 @@
             
             // Time speed control
             document.getElementById('timeSpeed').addEventListener('click', toggleTimeSpeed);
-            // Sleep and Story Log controls
+            // Sleep and Journal controls
             document.getElementById('sleepBtn').addEventListener('click', onSleepClick);
-            document.getElementById('storyLogBtn').addEventListener('click', toggleStoryLog);
-            document.getElementById('closeStoryLog').addEventListener('click', toggleStoryLog);
+            document.getElementById('journalBtn').addEventListener('click', () => toggleJournal(true));
+            document.getElementById('closeJournalBtn').addEventListener('click', () => toggleJournal(false));
+
+            // Journal Tabs
+            document.querySelectorAll('.journal-tab').forEach(tab => {
+                tab.addEventListener('click', () => switchJournalTab(tab.dataset.tab));
+            });
+
+            // UI Toggle
+            document.getElementById('toggle-log-btn').addEventListener('click', () => {
+                const sidebar = document.getElementById('left-sidebar');
+                const btn = document.getElementById('toggle-log-btn');
+                sidebar.classList.toggle('collapsed');
+                if (sidebar.classList.contains('collapsed')) {
+                    btn.textContent = '▶';
+                } else {
+                    btn.textContent = '◀';
+                }
+            });
             
             // Window resize
             window.addEventListener('resize', onWindowResize);
+        }
+
+        function toggleJournal(forceOpen) {
+            const journal = document.getElementById('journal');
+            const isOpen = journal.classList.contains('open');
+            if (typeof forceOpen === 'boolean' ? forceOpen : !isOpen) {
+                journal.classList.add('open');
+                // When opening the journal, refresh the log list
+                updateStoryLog(); 
+            } else {
+                journal.classList.remove('open');
+            }
+        }
+
+        function switchJournalTab(tabId) {
+            // Update tabs
+            document.querySelectorAll('.journal-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === tabId);
+            });
+            // Update content panes
+            document.querySelectorAll('.journal-pane').forEach(pane => {
+                pane.classList.toggle('active', pane.id === `journal-${tabId}`);
+            });
         }
 
         function onSleepClick() {
@@ -1812,6 +2036,12 @@
                     storyManager.completedDreams.push(index);
                     storyManager.lastDreamDay = storyManager.currentDay;
                     addToStoryLog(`Dream ${index + 1} completed on Day ${storyManager.currentDay}.`);
+
+                    // Check for game completion
+                    if (storyManager.completedDreams.length >= DREAM_SEQUENCES.length) {
+                        showGameCompletionMessage();
+                    }
+
                     if (typeof onComplete === 'function') onComplete();
                     return;
                 }
@@ -1823,33 +2053,36 @@
             nextBubble();
         }
 
-        function toggleStoryLog() {
-            const modal = document.getElementById('storyLogModal');
-            const isOpen = modal.style.display !== 'none';
-            modal.style.display = isOpen ? 'none' : 'block';
-            if (!isOpen) {
-                renderStoryLog();
+        function showMessage(message) {
+            const logContainer = document.getElementById('messageLog');
+            const msgEl = document.createElement('div');
+            msgEl.className = 'log-message';
+            msgEl.textContent = message;
+            
+            // Prepend to have newest on top, then scroll to top
+            logContainer.insertBefore(msgEl, logContainer.firstChild);
+            logContainer.scrollTop = 0;
+
+            // Optional: Limit number of messages
+            while (logContainer.children.length > 50) {
+                logContainer.removeChild(logContainer.lastChild);
             }
         }
 
-        function addToStoryLog(entry) {
-            const timestamp = `Day ${storyManager.currentDay}, ${String(Math.floor(gameTime)).padStart(2,'0')}:${String(Math.floor((gameTime - Math.floor(gameTime))*60)).padStart(2,'0')}`;
-            storyLog.push(`[${timestamp}] ${entry}`);
-            // Keep log reasonable
-            if (storyLog.length > 200) storyLog.shift();
+        function showGameCompletionMessage() {
+            const storyEl = document.getElementById('story');
+            storyEl.innerHTML = `
+                <h2>🌟 Congratulations! 🌟</h2>
+                <p>MARS has grown into a healthy, happy hippo thanks to your care!</p>
+                <p>You've experienced his full journey from a stubborn baby to a symbol of hope for his species.</p>
+                <p>The game will now continue in sandbox mode. Keep exploring and caring for MARS!</p>
+                <button onclick="document.getElementById('story').style.display='none'" style="margin-top:15px;">Continue Playing</button>
+            `;
+            storyEl.style.display = 'block';
         }
 
-        function renderStoryLog() {
-            const list = document.getElementById('storyLogList');
-            if (!list) return;
-            list.innerHTML = '';
-            storyLog.forEach(item => {
-                const li = document.createElement('li');
-                li.textContent = item;
-                li.style.margin = '4px 0';
-                list.appendChild(li);
-            });
-        }
+        // The toggleStoryLog function is now replaced by toggleJournal.
+        // The story log is now a tab within the journal.
         
         // Start the game
         init();

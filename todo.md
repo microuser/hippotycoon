@@ -58,11 +58,6 @@ This document outlines the development tasks for implementing a day/night cycle 
 - [x] **Task 3.1.2: Add a Clock/Day Display**
     - Added `Day/Time` display and logic to format from `gameTime` and `storyManager.currentDay` in `updateUI()`.
 
-- [ ] **Task 3.1.3: Add a Sleep Button**
-    - Add a "Sleep" button to the controls panel in the HTML.
-    - When it's evening/night in the game and MARS's energy is low, enable the button.
-    - Clicking the button will command MARS to find a spot to sleep and trigger the sleep cycle.
-    
 - [x] **Task 3.1.3: Add a Sleep Button**
     - Implemented `#sleepBtn` in controls; wired to `onSleepClick()` which initiates sleep at night or when exhausted.
     - Button enable/disable reflects night/energy and `inDream` state via `updateUI()`.
@@ -78,7 +73,7 @@ This document outlines the development tasks for implementing a day/night cycle 
 
 **Objective:** Ensure all new features work together seamlessly and polish the user experience.
 
-- [ ] **Task 4.1.1: Game Completion State**
+- [x] **Task 4.1.1: Game Completion State**
     - After the 4th dream sequence is completed, the game should enter a "complete" state.
     - Display a congratulatory message to the player, celebrating MARS's journey.
     - The game can continue in a sandbox mode after this.
