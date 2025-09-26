@@ -460,6 +460,7 @@
             explore: { icon: '🚶', name: 'Exploring', duration: 8000 },
             hunt: { icon: '🪲', name: 'Hunting bugs', duration: 10000 },
             hunting_beetle: { icon: '🏃‍♂️', name: 'Chasing beetle!', duration: 3000 },
+            hunting_frog: { icon: '🐸', name: 'Chasing frog!', duration: 4000 },
             drink: { icon: '💧', name: 'Drinking water', duration: 4000 },
             poop: { icon: '💩', name: 'Relieving bowel', duration: 3000 },
             pee: { icon: '💛', name: 'Relieving bladder', duration: 2000 },
@@ -702,6 +703,17 @@
             scene.add(frog);
         }
 
+        // Spawn maximum frogs when splashing
+        function spawnMaxFrogs() {
+            const neededFrogs = frogSpawner.maxFrogs - frogs.length;
+            for (let i = 0; i < neededFrogs; i++) {
+                spawnFrog();
+            }
+            if (neededFrogs > 0) {
+                showMessage(`Splash attracted ${neededFrogs} frogs! 🐸💦`);
+            }
+        }
+
         function updateFrogs(deltaTime) {
             const currentTime = Date.now();
             manageFrogSpawning(currentTime);
@@ -735,18 +747,20 @@
                     }
                 }
 
-                // Hopping: periodic upward impulse
+                // Hopping: periodic upward impulse (only when on ground)
                 ud.hopTimer += deltaTime * timeMultiplier;
-                if (ud.hopTimer > ud.hopInterval) {
+                const onGround = frog.position.y <= 0.36; // ground level + frog radius
+                if (ud.hopTimer > ud.hopInterval && onGround) {
                     ud.hopTimer = 0;
-                    ud.hopInterval = 0.6 + Math.random() * 0.8;
-                    ud.vy = 3.2 + Math.random() * 0.8;
+                    ud.hopInterval = 0.4 + Math.random() * 0.6; // more frequent hops
+                    ud.vy = 4.5 + Math.random() * 1.0; // higher jumps
                 }
 
                 // Apply movement and gravity
                 ud.vy -= gravity * deltaTime;
-                frog.position.y = Math.max(0.1, frog.position.y + ud.vy * deltaTime);
-                if (frog.position.y <= 0.11 && ud.vy < 0) {
+                frog.position.y = Math.max(0.35, frog.position.y + ud.vy * deltaTime); // ground at frog radius
+                if (frog.position.y <= 0.36 && ud.vy < 0) {
+                    frog.position.y = 0.35; // snap to ground
                     ud.vy = 0; // landed
                 }
                 // Horizontal move
@@ -1178,6 +1192,9 @@
                 marsAI.isExecutingUrgentAction = true; // Prioritize this action
                 marsAI.actionStartTime = Date.now();
                 updateAIStatus('Having fun splashing!');
+                
+                // Splash spawns maximum frogs!
+                spawnMaxFrogs();
             } else {
                 showMessage("MARS needs to be in the water to splash!");
             }
@@ -2165,6 +2182,26 @@
                 return; // Don't process other AI while lying down
             }
             
+            // Check for nearby frogs first - MARS loves frogs!
+            const nearbyFrogs = frogs.filter(frog => 
+                mars.position.distanceTo(frog.position) < 10
+            );
+            
+            if (nearbyFrogs.length > 0 && marsAI.currentAction !== 'hunting_frog') {
+                // Override current action to chase frogs
+                marsAI.currentAction = 'hunting_frog';
+                marsAI.isExecutingUrgentAction = true;
+                marsAI.actionStartTime = currentTime;
+                updateAIStatus('🐸 Spotted a tasty frog!');
+                
+                // Target the closest frog
+                const closestFrog = nearbyFrogs.reduce((closest, frog) => 
+                    mars.position.distanceTo(frog.position) < mars.position.distanceTo(closest.position) ? frog : closest
+                );
+                setMarsTarget(closestFrog.position);
+                return;
+            }
+            
             // Check for nearby beetles (only ground beetles, not flying or swarming ones)
             const nearbyGroundBeetles = beetles.filter(beetle => 
                 !beetle.userData.isFlying && 
@@ -2193,6 +2230,13 @@
                 );
                 setMarsTarget(closestBeetle.position);
                 return;
+            }
+            
+            // If currently hunting frogs but no frogs available, switch back
+            if (marsAI.currentAction === 'hunting_frog' && nearbyFrogs.length === 0) {
+                marsAI.isExecutingUrgentAction = false;
+                marsAI.currentAction = 'idle';
+                updateAIStatus('Lost the frog...');
             }
             
             // If currently hunting but no beetles available, look for regenerating rocks
