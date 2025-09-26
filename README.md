@@ -1,7 +1,6 @@
 # hippotycoon
 MARS the Hippo living large in a zoo life simulator
 
-## MARS Baby Hippo Simulator 
 
 A rich interactive ecosystem simulation featuring MARS, the famous baby hippo from Tanganyika Wildlife Park. Experience autonomous AI behavior, skill-based scoring, and complex creature interactions in MARS's dynamic habitat.
 
@@ -11,12 +10,13 @@ A rich interactive ecosystem simulation featuring MARS, the famous baby hippo fr
 - **Intelligent Decision Making**: MARS evaluates her needs and makes autonomous choices
 - **Priority-Based Actions**: Urgent needs (>50%) override normal behavior patterns
 - **Action Queue Visualization**: Watch MARS's thought process in real-time
+- **Random Lie Down Behavior**: MARS spontaneously lies down to nuzzle the ground every ~12 seconds, interrupting current actions
 - **Manual Override**: Left-click to guide MARS when needed
 
 ###  Interactive Gameplay
 - **Backflip Combos**: Press Space in water for spectacular +10,000 point backflips
 - **Scoring System**: Track achievements and skill-based performance
-- **Rock Interactions**: Right-click rocks to spawn beetles, nudge rocks while hunting
+{{ ... }}
 - **Enhanced Controls**: Comprehensive input system with visual feedback
 
 ###  Living Ecosystem

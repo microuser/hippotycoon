@@ -446,7 +446,12 @@
             isExecutingUrgentAction: false,
             lastThoughtTime: 0,
             thoughtInterval: 3000, // Think every 3 seconds
-            actionHistory: []
+            actionHistory: [],
+            lastLieDownTime: 0,
+            lieDownInterval: 12000, // ~12 seconds between random lie downs
+            isLyingDown: false,
+            lieDownStartTime: 0,
+            lieDownDuration: 1000 // 1 second lie down
         };
         
         // Action definitions
@@ -460,7 +465,8 @@
             pee: { icon: '💛', name: 'Relieving bladder', duration: 2000 },
             eat: { icon: '🍃', name: 'Eating grass', duration: 6000 },
             sleep: { icon: '🛌', name: 'Sleeping', duration: 8000 },
-            splash: { icon: '💦', name: 'Splashing', duration: 4000 }
+            splash: { icon: '💦', name: 'Splashing', duration: 4000 },
+            lie_down: { icon: '💤', name: 'Nuzzling ground', duration: 1000 }
         };
         
         // MARS Stats
@@ -2120,6 +2126,44 @@
         
         function updateMarsAI(deltaTime) {
             const currentTime = Date.now();
+
+            // Random lie down behavior - interrupts current action
+            const adjustedLieInterval = marsAI.lieDownInterval / timeMultiplier;
+            if (!marsAI.isLyingDown && 
+                currentTime - marsAI.lastLieDownTime > adjustedLieInterval && 
+                Math.random() < 0.1) { // 10% chance when interval passed
+                
+                // Interrupt current action and lie down
+                marsAI.isLyingDown = true;
+                marsAI.lieDownStartTime = currentTime;
+                marsAI.lastLieDownTime = currentTime;
+                marsAI.currentAction = 'lie_down';
+                
+                // Stop movement
+                mars.userData.isMoving = false;
+                mars.userData.targetPosition = null;
+                if (currentTarget) {
+                    scene.remove(currentTarget);
+                    currentTarget = null;
+                }
+                
+                updateAIStatus('💤 Nuzzling the ground...');
+                showMessage('MARS lies down to nuzzle the ground 💤');
+                return; // Skip normal AI processing
+            }
+
+            // Handle lie down completion
+            if (marsAI.isLyingDown) {
+                const lieElapsed = currentTime - marsAI.lieDownStartTime;
+                const adjustedDuration = marsAI.lieDownDuration / timeMultiplier;
+                if (lieElapsed > adjustedDuration) {
+                    marsAI.isLyingDown = false;
+                    marsAI.currentAction = 'idle';
+                    updateAIStatus('Getting back up...');
+                    // Resume normal AI processing on next frame
+                }
+                return; // Don't process other AI while lying down
+            }
             
             // Check for nearby beetles (only ground beetles, not flying or swarming ones)
             const nearbyGroundBeetles = beetles.filter(beetle => 
