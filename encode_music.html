@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Re-encode MP3 with Bitrate Slider</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        input[type="file"], input[type="range"], button {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+        }
+        textarea {
+            width: 80%;
+            height: 100px;
+            margin: 10px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+        #output {
+            margin: 10px;
+            text-align: center;
+        }
+        button {
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #bitrateSlider {
+            width: 300px;
+        }
+        datalist {
+            display: flex;
+            justify-content: space-between;
+            width: 300px;
+            margin: 0;
+        }
+        datalist option {
+            font-size: 12px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js"></script>
+</head>
+<body>
+    <input type="file" id="audioFileInput" accept="audio/mpeg" />
+    <label for="bitrateSlider">Select Bitrate (kbps, mono):</label>
+    <input type="range" id="bitrateSlider" min="32" max="320" value="96" list="bitrateNotches" />
+    <datalist id="bitrateNotches">
+        <option value="32">32</option>
+        <option value="48">48</option>
+        <option value="64">64</option>
+        <option value="96">96</option>
+        <option value="128">128</option>
+        <option value="160">160</option>
+        <option value="192">192</option>
+        <option value="256">256</option>
+        <option value="320">320</option>
+    </datalist>
+    <audio id="bgMusic" controls loop></audio>
+    <div id="output"></div>
+    <textarea id="base64Output" readonly placeholder="Base64 string will appear here after encoding..."></textarea>
+    <button id="copyButton" disabled>Select All & Copy</button>
+    <button id="downloadTextButton" disabled>Download Base64 as Text</button>
+    <button id="downloadHtmlButton" disabled>Download Autoplay HTML</button>
+
+    <script>
+        const fileInput = document.getElementById('audioFileInput');
+        const bitrateSlider = document.getElementById('bitrateSlider');
+        const audio = document.getElementById('bgMusic');
+        const outputDiv = document.getElementById('output');
+        const base64Output = document.getElementById('base64Output');
+        const copyButton = document.getElementById('copyButton');
+        const downloadTextButton = document.getElementById('downloadTextButton');
+        const downloadHtmlButton = document.getElementById('downloadHtmlButton');
+
+        // Snap slider to notches
+        const bitrates = [32, 48, 64, 96, 128, 160, 192, 256, 320];
+        bitrateSlider.addEventListener('input', () => {
+            const value = parseInt(bitrateSlider.value);
+            const closest = bitrates.reduce((prev, curr) =>
+                Math.abs(curr - value) < Math.abs(prev - value) ? curr : prev
+            );
+            bitrateSlider.value = closest;
+        });
+
+        fileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                outputDiv.textContent = 'No file selected';
+                return;
+            }
+            if (file.type !== 'audio/mpeg') {
+                outputDiv.textContent = 'Please select an MP3 file';
+                alert('Please select an MP3 file');
+                return;
+            }
+
+            // Get selected bitrate
+            const bitrate = parseInt(bitrateSlider.value);
+
+            // Read original file as ArrayBuffer
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const originalArrayBuffer = e.target.result;
+
+                // Convert original to base64
+                const originalBinary = new Uint8Array(originalArrayBuffer);
+                let binaryString = '';
+                for (let i = 0; i < originalBinary.length; i++) {
+                    binaryString += String.fromCharCode(originalBinary[i]);
+                }
+                const originalBase64 = btoa(binaryString);
+                const originalSize = originalBinary.length; // Bytes
+                const originalBase64Length = originalBase64.length;
+
+                // Decode audio to PCM using Web Audio API
+                const audioContext = new AudioContext();
+                let audioBuffer;
+                try {
+                    audioBuffer = await audioContext.decodeAudioData(originalArrayBuffer);
+                } catch (err) {
+                    outputDiv.textContent = 'Error decoding audio: ' + err;
+                    return;
+                }
+
+                // Prepare mono audio data
+                const sampleRate = audioBuffer.sampleRate;
+                const duration = audioBuffer.duration;
+                const numChannels = 1; // Mono
+                const numSamples = Math.floor(duration * sampleRate);
+                const monoData = new Float32Array(numSamples);
+
+                // Mix stereo to mono (average channels)
+                const channelData = audioBuffer.numberOfChannels === 1
+                    ? audioBuffer.getChannelData(0)
+                    : audioBuffer.getChannelData(0).map((val, i) =>
+                        (val + audioBuffer.getChannelData(1)[i]) / 2);
+
+                for (let i = 0; i < numSamples; i++) {
+                    monoData[i] = channelData[Math.floor(i * audioBuffer.length / numSamples)] || 0;
+                }
+
+                // Convert Float32Array to Int16Array for lamejs
+                const int16Data = new Int16Array(numSamples);
+                for (let i = 0; i < numSamples; i++) {
+                    int16Data[i] = Math.max(-32768, Math.min(32767, monoData[i] * 32767));
+                }
+
+                // Encode to MP3 at selected bitrate (mono)
+                const mp3Encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, bitrate);
+                const mp3Data = [];
+                const blockSize = 1152; // MP3 frame size
+                for (let i = 0; i < numSamples; i += blockSize) {
+                    const block = int16Data.subarray(i, i + blockSize);
+                    const mp3buf = mp3Encoder.encodeBuffer(block);
+                    if (mp3buf.length > 0) {
+                        mp3Data.push(mp3buf);
+                    }
+                }
+                const mp3buf = mp3Encoder.flush();
+                if (mp3buf.length > 0) {
+                    mp3Data.push(mp3buf);
+                }
+
+                // Combine MP3 data into a single ArrayBuffer
+                let totalLength = mp3Data.reduce((sum, buf) => sum + buf.length, 0);
+                const reencodedArrayBuffer = new Uint8Array(totalLength);
+                let offset = 0;
+                for (const buf of mp3Data) {
+                    reencodedArrayBuffer.set(buf, offset);
+                    offset += buf.length;
+                }
+
+                // Convert re-encoded to base64
+                binaryString = '';
+                for (let i = 0; i < reencodedArrayBuffer.length; i++) {
+                    binaryString += String.fromCharCode(reencodedArrayBuffer[i]);
+                }
+                const reencodedBase64 = btoa(binaryString);
+                const reencodedSize = reencodedArrayBuffer.length; // Bytes
+                const reencodedBase64Length = reencodedBase64.length;
+
+                // Display base64 in textarea
+                base64Output.value = reencodedBase64;
+
+                // Enable buttons
+                copyButton.disabled = false;
+                downloadTextButton.disabled = false;
+                downloadHtmlButton.disabled = false;
+
+                // Calculate size reduction
+                const sizeReduction = ((originalSize - reencodedSize) / originalSize * 100).toFixed(2);
+                const base64Reduction = ((originalBase64Length - reencodedBase64Length) / originalBase64Length * 100).toFixed(2);
+
+                // Display results
+                outputDiv.innerHTML = `
+                    <p>Original Size: ${(originalSize / 1024).toFixed(2)} KB</p>
+                    <p>Original Base64 Length: ${originalBase64Length} characters</p>
+                    <p>Re-encoded Size (${bitrate}kbps mono): ${(reencodedSize / 1024).toFixed(2)} KB</p>
+                    <p>Re-encoded Base64 Length: ${reencodedBase64Length} characters</p>
+                    <p>File Size Reduction: ${sizeReduction}%</p>
+                    <p>Base64 String Length Reduction: ${base64Reduction}%</p>
+                `;
+                console.log('Re-encoded Base64 String:', reencodedBase64);
+
+                // Play re-encoded MP3 as a Blob
+                const blob = new Blob([reencodedArrayBuffer], { type: 'audio/mpeg' });
+                const audioUrl = URL.createObjectURL(blob);
+                audio.src = audioUrl;
+                audio.volume = 0.5;
+
+                // Attempt to autoplay with fallback
+                audio.play().catch(error => {
+                    console.error('Autoplay blocked:', error);
+                    document.addEventListener('click', () => {
+                        audio.play().catch(err => console.error('Playback error:', err));
+                    }, { once: true });
+                });
+
+                // Generate HTML content for download using template literals
+                const encodedBase64 = encodeURIComponent(reencodedBase64);
+                const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autoplay Audio</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        audio {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Autoplay Audio (${bitrate}kbps Mono)</h1>
+    <audio id="bgMusic" controls loop></audio>
+    <script>
+        const encodedBase64 = decodeURIComponent(\`${encodedBase64}\`);
+        const binaryString = atob(encodedBase64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'audio/mpeg' });
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = document.getElementById('bgMusic');
+        audio.src = audioUrl;
+        audio.volume = 0.5;
+        audio.play().catch(error => {
+            console.error('Autoplay blocked:', error);
+            document.addEventListener('click', () => {
+                audio.play().catch(err => console.error('Playback error:', err));
+            }, { once: true });
+        });
+        window.addEventListener('beforeunload', () => {
+            URL.revokeObjectURL(audioUrl);
+        });
+    </script>
+</body>
+</html>`;
+
+                // Download HTML button functionality
+                downloadHtmlButton.onclick = () => {
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `autoplay_audio_${bitrate}kbps.html`;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                };
+
+                // Clean up
+                window.addEventListener('beforeunload', () => {
+                    URL.revokeObjectURL(audioUrl);
+                    audioContext.close();
+                });
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Copy button functionality
+        copyButton.addEventListener('click', () => {
+            base64Output.select();
+            navigator.clipboard.writeText(base64Output.value)
+                .then(() => {
+                    alert('Base64 string copied to clipboard!');
+                })
+                .catch(err => {
+                    console.error('Copy failed:', err);
+                    alert('Failed to copy base64 string');
+                });
+        });
+
+        // Download base64 text button functionality
+        downloadTextButton.addEventListener('click', () => {
+            const blob = new Blob([base64Output.value], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `reencoded_base64_${bitrateSlider.value}kbps.txt`;
+            link.click();
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
