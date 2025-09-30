@@ -46,12 +46,12 @@
             cursor: not-allowed;
         }
         #bitrateSlider {
-            width: 300px;
+            width: 500px;
         }
         datalist {
             display: flex;
             justify-content: space-between;
-            width: 300px;
+            width: 500px;
             margin: 0;
         }
         datalist option {
@@ -63,11 +63,14 @@
 <body>
     <input type="file" id="audioFileInput" accept="audio/mpeg" />
     <label for="bitrateSlider">Select Bitrate (kbps, mono):</label>
-    <input type="range" id="bitrateSlider" min="8" max="320" value="96" list="bitrateNotches" />
+    <input type="range" id="bitrateSlider" min="8" max="320" value="16" list="bitrateNotches" />
     <datalist id="bitrateNotches">
         <option value="8">8</option>
+        <option value="12">12</option>
         <option value="16">16</option>
+        <option value="20">20</option>
         <option value="24">24</option>
+        <option value="28">28</option>
         <option value="32">32</option>
         <option value="48">48</option>
         <option value="64">64</option>
@@ -84,6 +87,17 @@
     <button id="copyButton" disabled>Select All & Copy</button>
     <button id="downloadTextButton" disabled>Download Base64 as Text</button>
     <button id="downloadHtmlButton" disabled>Download Autoplay HTML</button>
+    
+    <div id="sizeOptimizationTips" style="margin-top: 20px; padding: 15px; background-color: #e9f4ff; border-radius: 8px; max-width: 600px; text-align: left;">
+        <h3>💡 Further Size Reduction Tips:</h3>
+        <ul>
+            <li><strong>Lower Sample Rate:</strong> Consider converting to 22kHz or 11kHz before encoding (reduces file size ~50%)</li>
+            <li><strong>Shorter Duration:</strong> Trim silence or create shorter loops</li>
+            <li><strong>Audio Compression:</strong> Use audio normalization/compression to reduce dynamic range</li>
+            <li><strong>Format Alternative:</strong> Consider OGG Vorbis for even smaller files (not universally supported)</li>
+            <li><strong>16kbps Mono:</strong> Current default - good balance of size vs intelligibility</li>
+        </ul>
+    </div>
 
     <script>
         const fileInput = document.getElementById('audioFileInput');
@@ -96,7 +110,7 @@
         const downloadHtmlButton = document.getElementById('downloadHtmlButton');
 
         // Snap slider to notches
-        const bitrates = [8, 16, 24, 32, 48, 64, 96, 128, 160, 192, 256, 320];
+        const bitrates = [8, 12, 16, 20, 24, 28, 32, 48, 64, 96, 128, 160, 192, 256, 320];
         bitrateSlider.addEventListener('input', () => {
             const value = parseInt(bitrateSlider.value);
             const closest = bitrates.reduce((prev, curr) =>
@@ -287,6 +301,13 @@
                 audio.play().catch(err => console.error('Playback error:', err));
             }, { once: true });
         });
+        
+        // Ensure looping works by adding event listener as backup
+        audio.addEventListener('ended', () => {
+            audio.currentTime = 0;
+            audio.play().catch(err => console.error('Loop playback error:', err));
+        });
+        
         window.addEventListener('beforeunload', () => {
             URL.revokeObjectURL(audioUrl);
         });
