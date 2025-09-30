@@ -63,8 +63,11 @@
 <body>
     <input type="file" id="audioFileInput" accept="audio/mpeg" />
     <label for="bitrateSlider">Select Bitrate (kbps, mono):</label>
-    <input type="range" id="bitrateSlider" min="32" max="320" value="96" list="bitrateNotches" />
+    <input type="range" id="bitrateSlider" min="8" max="320" value="96" list="bitrateNotches" />
     <datalist id="bitrateNotches">
+        <option value="8">8</option>
+        <option value="16">16</option>
+        <option value="24">24</option>
         <option value="32">32</option>
         <option value="48">48</option>
         <option value="64">64</option>
@@ -93,7 +96,7 @@
         const downloadHtmlButton = document.getElementById('downloadHtmlButton');
 
         // Snap slider to notches
-        const bitrates = [32, 48, 64, 96, 128, 160, 192, 256, 320];
+        const bitrates = [8, 16, 24, 32, 48, 64, 96, 128, 160, 192, 256, 320];
         bitrateSlider.addEventListener('input', () => {
             const value = parseInt(bitrateSlider.value);
             const closest = bitrates.reduce((prev, curr) =>
@@ -166,7 +169,9 @@
                 }
 
                 // Encode to MP3 at selected bitrate (mono)
-                const mp3Encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, bitrate);
+                // Ensure bitrate is valid for lamejs (minimum 8kbps for mono)
+                const validBitrate = Math.max(8, Math.min(320, bitrate));
+                const mp3Encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, validBitrate);
                 const mp3Data = [];
                 const blockSize = 1152; // MP3 frame size
                 for (let i = 0; i < numSamples; i += blockSize) {
@@ -215,7 +220,7 @@
                 outputDiv.innerHTML = `
                     <p>Original Size: ${(originalSize / 1024).toFixed(2)} KB</p>
                     <p>Original Base64 Length: ${originalBase64Length} characters</p>
-                    <p>Re-encoded Size (${bitrate}kbps mono): ${(reencodedSize / 1024).toFixed(2)} KB</p>
+                    <p>Re-encoded Size (${validBitrate}kbps mono): ${(reencodedSize / 1024).toFixed(2)} KB</p>
                     <p>Re-encoded Base64 Length: ${reencodedBase64Length} characters</p>
                     <p>File Size Reduction: ${sizeReduction}%</p>
                     <p>Base64 String Length Reduction: ${base64Reduction}%</p>
@@ -261,7 +266,7 @@
     </style>
 </head>
 <body>
-    <h1>Autoplay Audio (${bitrate}kbps Mono)</h1>
+    <h1>Autoplay Audio (${validBitrate}kbps Mono)</h1>
     <audio id="bgMusic" controls loop></audio>
     <script>
         const encodedBase64 = decodeURIComponent(\`${encodedBase64}\`);
@@ -285,7 +290,7 @@
         window.addEventListener('beforeunload', () => {
             URL.revokeObjectURL(audioUrl);
         });
-    </script>
+    </scr${''}ipt>
 </body>
 </html>`;
 
@@ -295,7 +300,7 @@
                     const url = URL.createObjectURL(blob);
                     const link = document.createElement('a');
                     link.href = url;
-                    link.download = `autoplay_audio_${bitrate}kbps.html`;
+                    link.download = `autoplay_audio_${validBitrate}kbps.html`;
                     link.click();
                     URL.revokeObjectURL(url);
                 };
